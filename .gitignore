@@ -1,0 +1,6 @@
+.env
+.DS_Store
+bin/*
+.cursor/rules/*
+.gocache/
+.gomodcache/
