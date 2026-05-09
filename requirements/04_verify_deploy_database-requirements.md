@@ -9,44 +9,43 @@ Design: Use `zsh` shebang and `set -euo pipefail`.
 Tests:
 - Cause a command failure and verify script exits non-zero.
 
-R005  Statement: Support configurable database connection defaults.
-Design: Read `TELLER_DB_HOST`, `TELLER_DB_PORT`, `TELLER_DB_NAME`, and `TELLER_DB_USER` with localhost defaults.
+R005  Statement: Resolve verification credentials exclusively from `1psa`.
+Design: Read manifold password from `1psa` item `localhost_postgres_manifold` (default field `password`) and connect only to local `localhost:5432/manifold` as user `manifold`.
 Tests:
-- Override DB host/user env vars and verify `psql` receives the overrides.
+- Run with `1psa` unavailable and verify explicit non-zero failure output.
+- Return empty manifold credential from `1psa` and verify explicit non-zero failure output.
 
-R010  Statement: Resolve DB password from preferred 1psa source with env fallback.
-Design: Resolve from `TELLER_PSA_ITEM` first when `1psa` is available, otherwise use `TELLER_DB_PASSWORD`.
+R010  Statement: Refuse verification when `psql` is unavailable.
+Design: Verify `psql` exists on PATH before running database checks.
 Tests:
-- Set both sources and verify `1psa` value is used when available.
-- Make `1psa` unavailable and verify `TELLER_DB_PASSWORD` fallback path is used.
+- Run with `psql` missing and verify explicit non-zero failure output.
 
-R015  Statement: Refuse verification when DB password resolves empty.
-Design: Validate resolved password before running checks, print `❌ FAIL:` with a clear reason, and exit non-zero.
+R015  Statement: Verify required manifold ingest tables exist.
+Design: Assert `ingest_batches` and `ingest_events` exist in `public` schema and report missing names.
 Tests:
-- Force empty password and verify output starts with `❌ FAIL:` and script exits non-zero.
+- Return a missing table from fixture `psql` output and verify failure details list the table.
 
-R020  Statement: Verify required deployed database objects exist.
-Design: Check for required roles/schema/core relations deployed by `03_deploy_database.sh` and report missing objects.
+R020  Statement: Verify required ingest indexes exist.
+Design: Assert required indexes from `internal/storage/schema.sql` exist for timestamp, event name, component, and install-id lookups.
 Tests:
-- Drop or rename one required object in a test DB and verify it appears in failure output.
+- Return a missing index from fixture `psql` output and verify failure details list the index.
 
-R025  Statement: Verify transaction classification FK cascades deletes.
-Design: Assert `teller.transaction_nys_snw_category(transaction_id)` references `teller.transaction(transaction_id)` with `ON DELETE CASCADE`.
+R025  Statement: Verify foreign key linkage between events and batches.
+Design: Assert a foreign key exists from `ingest_events(batch_id)` to `ingest_batches(batch_id)`.
 Tests:
-- Alter FK without cascade and verify script fails with explicit FK diagnostic.
+- Return a missing FK check result and verify explicit FK diagnostic failure.
 
-R030  Statement: Verify updated_at trigger wiring after deploy.
-Design: Assert `teller.update_updated_at` exists and that `teller.transaction_nys_snw_category` has a non-internal trigger calling it.
-Tests:
-- Drop function or trigger and verify script fails with explicit trigger diagnostic.
-
-R035  Statement: Print explicit pass/fail verification result.
+R030  Statement: Print explicit pass/fail verification result.
 Design: Print one `✅ PASS:` line only when all checks pass; otherwise print `❌ FAIL:` header, list each failed check, and exit non-zero.
 Tests:
 - Verify all-pass run emits a single `✅ PASS:` line.
 - Verify any failed check emits `❌ FAIL:` details and exits non-zero.
 
+R035  Statement: Execute verification queries with fail-fast psql options.
+Design: Run verification SQL via `psql -w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -At` using credentials from `R005`.
+Tests:
+- Verify query invocations include `ON_ERROR_STOP=1` and the configured database URL.
+
 ## Changelog
 
-- 2026-04-22: Initial requirements for `04_verify_deploy_database.sh`.
-- 2026-05-09: Updated password-resolution precedence to prefer `1psa` with environment fallback.
+- 2026-05-09: Replaced teller-oriented verify requirements with manifold storage-object verification requirements.

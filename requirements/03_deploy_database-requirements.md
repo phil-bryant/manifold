@@ -4,83 +4,42 @@
 
 Applies to `03_deploy_database.sh`.
 
-R001  Statement: Fail fast when deployment steps fail.
-Design: Use `set -e` and exit non-zero on unrecoverable errors.
+R001  Statement: Run deploy in strict fail-fast mode.
+Design: Use `bash` strict mode (`set -euo pipefail`) so deploy aborts on first command or variable failure.
 Tests:
-- Force failing SQL execution and verify script exits non-zero.
+- Force `psql` failure and verify script exits non-zero.
 
-R005  Statement: Prefer `1psa` for credential lookup with env fallback.
-Design: Attempt `1psa` lookup first when available, then fall back to env-provided passwords.
+R005  Statement: Resolve deploy credentials exclusively from `1psa`.
+Design: Read postgres admin password from `localhost_postgres_postgres` and manifold password from `localhost_postgres_manifold` (default `password` field for both), with optional `POSTGRES_PSA_ITEM`/`POSTGRES_PSA_FIELD` and `MANIFOLD_PSA_ITEM`/`MANIFOLD_PSA_FIELD` overrides.
 Tests:
-- Run with `1psa` available and verify `1psa`-resolved password is used over env values.
-- Run without `1psa` and verify env fallback path is used.
+- Run with `1psa` unavailable and verify explicit non-zero failure output.
+- Return empty manifold credential from `1psa` and verify explicit non-zero failure output.
 
-R006  Statement: Ensure `psql` exits immediately when SQL execution hits an error.
-Design: Define shared `psql` options with `-v ON_ERROR_STOP=1` and apply them on every SQL invocation path.
+R010  Statement: Refuse deploy when `psql` is unavailable.
+Design: Verify `psql` exists on PATH before attempting schema application.
 Tests:
-- Introduce a SQL syntax error during deploy and verify execution stops at the failing statement.
+- Run with `psql` missing from PATH and verify explicit non-zero failure output.
 
-R007  Statement: Execute postgres-admin SQL through a reusable fail-fast wrapper.
-Design: Provide a dedicated postgres helper that injects admin credentials plus shared fail-fast options.
+R015  Statement: Resolve schema path relative to script location.
+Design: Build schema file path from the script directory so deploy works from any current working directory.
 Tests:
-- Run bootstrap SQL through helper and verify command includes fail-fast behavior and postgres role.
+- Run script from a non-repo working directory and verify schema file still resolves.
 
-R008  Statement: Execute teller-user SQL through a reusable fail-fast wrapper.
-Design: Provide a dedicated teller helper that injects teller credentials, target database, and shared fail-fast options.
+R020  Statement: Refuse deploy when schema file is missing.
+Design: Validate `internal/storage/schema.sql` exists before invoking `psql`.
 Tests:
-- Run schema SQL through helper and verify command includes fail-fast behavior, teller role, and `prod` database target.
+- Remove schema file in a fixture and verify explicit non-zero failure output.
 
-R010  Statement: Resolve postgres admin password from configurable preferred 1psa source.
-Design: Default to `POSTGRES_PSA_ITEM=localhost_postgres_postgres` and `POSTGRES_PSA_FIELD=password`, with env overrides and fallback to `POSTGRES_PASSWORD` when needed.
+R025  Statement: Bootstrap manifold role/database and apply schema with fail-fast `psql` execution.
+Design: Connect as postgres to create-or-alter role `manifold`, create-or-own database `manifold`, then execute schema apply as user `manifold` using `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f internal/storage/schema.sql`.
 Tests:
-- Override item/field and verify resolved password path is used.
+- Verify deploy invokes admin `psql` bootstrap commands and manifold schema apply with `ON_ERROR_STOP=1`.
 
-R015  Statement: Resolve teller database password from configurable preferred 1psa source.
-Design: Default to `TELLER_PSA_ITEM=localhost_postgres_manifold` and `TELLER_PSA_FIELD=password`, with env overrides and fallback to `TELLER_PASSWORD` when needed.
+R030  Statement: Emit concise operator-readable success output.
+Design: Print one success line after schema apply completes without errors.
 Tests:
-- Override teller item/field and verify resolved password path is used.
-
-R020  Statement: Refuse deploy when required passwords resolve empty.
-Design: Validate both password variables before SQL steps.
-Tests:
-- Return empty passwords from both `1psa` and env fallback and verify script exits non-zero.
-
-R025  Statement: Run admin bootstrap SQL as postgres user.
-Design: Execute `create_database.sql` then `configure_database.sql` with postgres credentials.
-Tests:
-- Verify bootstrap SQL scripts execute in expected order.
-
-R030  Statement: Build teller schema objects in declared dependency order.
-Design: Execute teller SQL files sequentially as teller user against `prod`.
-Tests:
-- Verify later table creation depends on earlier files and run succeeds in listed order.
-
-R035  Statement: Resolve SQL file directory relative to script location.
-Design: Use `sql/postgres` under script directory.
-Tests:
-- Run script from a different working directory and verify SQL files still resolve.
-
-R040  Statement: Attach updated_at triggers after all table DDL creation.
-Design: Execute `create_triggers.sql` only after all `teller_*.sql` table files that define `updated_at` are applied.
-Tests:
-- Verify deploy order runs `create_triggers.sql` after `teller_transaction_nys_snw_category.sql`.
-
-R045  Statement: Ensure transaction classifications cascade-delete with parent transaction removal.
-Design: Enforce `ON DELETE CASCADE` on `teller.transaction_nys_snw_category(transaction_id)` during deploy, including existing databases.
-Tests:
-- Delete a row from `teller.transaction` with a linked `transaction_nys_snw_category` row and verify child row is removed automatically.
-- Re-run deploy and verify FK remains present with cascade behavior.
-
-R050  Statement: Ensure pgTAP extension is installed in `prod` during deploy.
-Design: Run `CREATE EXTENSION IF NOT EXISTS pgtap;` as postgres against `prod` after database configuration.
-Tests:
-- Verify deploy invokes SQL that creates `pgtap` extension in `prod`.
+- Verify success output contains a single `PASS` line.
 
 ## Changelog
 
-- 2026-04-24: Added R006-R008 for fail-fast `psql` options and wrapper function coverage.
-- 2026-04-26: Added R050 to create `pgtap` extension in `prod` during deploy bootstrap.
-- 2026-04-21: Added R040 trigger-order requirement to ensure full updated_at coverage.
-- 2026-04-22: Added R045 to enforce cascading delete behavior for transaction classifications.
-- 2026-04-19: Initial reverse-engineered requirements for `03_deploy_database.sh`.
-- 2026-05-09: Updated password-resolution precedence to prefer `1psa` with environment fallback.
+- 2026-05-09: Replaced teller-oriented deploy requirements with manifold schema deploy requirements.

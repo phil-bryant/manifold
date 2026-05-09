@@ -18,9 +18,6 @@ make_1psa_stub() {
 #!/usr/bin/env bash
 if [ "${1:-}" = "-p" ]; then
   case "${2:-}" in
-    localhost_postgres_postgres)
-      printf '%s\n' "${POSTGRES_PASSWORD-postgres-password}"
-      ;;
     localhost_postgres_manifold)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
       ;;
@@ -32,9 +29,6 @@ if [ "${1:-}" = "-p" ]; then
 fi
 if [ "${1:-}" = "-f" ]; then
   case "${2:-}" in
-    localhost_postgres_postgres)
-      printf '%s\n' "${POSTGRES_PASSWORD-postgres-password}"
-      ;;
     localhost_postgres_manifold)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
       ;;
@@ -51,10 +45,12 @@ EOF
 
 setup_fixture() {
   create_repo_fixture
-  copy_script_to_fixture "03_deploy_database.sh"
-  mkdir -p "${FIXTURE_ROOT}/internal/storage"
-  cat > "${FIXTURE_ROOT}/internal/storage/schema.sql" <<'EOF'
-CREATE TABLE IF NOT EXISTS ingest_batches (id BIGINT PRIMARY KEY);
+  copy_script_to_fixture "05_run_sql_unit_tests.sh"
+  mkdir -p "${FIXTURE_ROOT}/internal/storage/sql/unit"
+  cat > "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql" <<'EOF'
+SELECT plan(1);
+SELECT ok(true, 'stub');
+SELECT * FROM finish();
 EOF
 }
 
@@ -69,24 +65,24 @@ setup() {
   make_1psa_stub
 }
 
-@test "exits non-zero when schema apply fails" {
+@test "fails on first psql error" {
   #R001
   make_psql_stub 1
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
 }
 
 @test "fails when 1psa is unavailable" {
   #R005
   export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"1psa is required"* ]]
 }
 
 @test "fails when manifold 1psa credential lookup is empty" {
   #R005
-  run env MANIFOLD_PASSWORD= bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run env MANIFOLD_PASSWORD= bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
@@ -96,42 +92,54 @@ setup() {
   rm -f "${STUB_BIN}/psql"
   make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"psql is required"* ]]
 }
 
-@test "resolves schema path relative to script from different cwd" {
+@test "resolves SQL unit-test path relative to script location" {
   #R015
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]
-  grep -F "internal/storage/schema.sql" "${CALLS_LOG}"
+  grep -F "internal/storage/sql/unit/ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }
 
-@test "fails when schema file is missing" {
+@test "fails when SQL unit-test file is missing" {
   #R020
-  mv "${FIXTURE_ROOT}/internal/storage/schema.sql" "${FIXTURE_ROOT}/internal/storage/schema.sql.trash"
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  mv "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql" \
+    "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql.trash"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Schema file not found"* ]]
+  [[ "$output" == *"SQL unit-test file not found"* ]]
 }
 
-@test "applies schema using fail-fast psql flags and 1psa credentials" {
+@test "creates pgtap extension before running SQL unit tests" {
   #R025
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]
-  grep -F -- "-U postgres" "${CALLS_LOG}"
+  local create_line
+  create_line="$(grep -n "CREATE EXTENSION IF NOT EXISTS pgtap" "${CALLS_LOG}")"
+  local run_line
+  run_line="$(grep -n "ingest_schema_pgtap.sql" "${CALLS_LOG}")"
+  [ -n "$create_line" ]
+  [ -n "$run_line" ]
+}
+
+@test "runs SQL unit tests with fail-fast psql options" {
+  #R030
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -eq 0 ]
   grep -F -- "-h localhost" "${CALLS_LOG}"
   grep -F -- "-p 5432" "${CALLS_LOG}"
   grep -F -- "-U manifold" "${CALLS_LOG}"
   grep -F -- "-d manifold" "${CALLS_LOG}"
   grep -F "ON_ERROR_STOP=1" "${CALLS_LOG}"
-  grep -F "internal/storage/schema.sql" "${CALLS_LOG}"
+  grep -F "ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }
 
-@test "prints pass line after successful deploy" {
-  #R030
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+@test "emits a single pass line after successful SQL unit tests" {
+  #R035
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
 }

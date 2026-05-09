@@ -17,6 +17,9 @@ todos:
   - id: validate-traceability-tests
     content: Run traceability script and BATS tests to verify requirements-script-test alignment without implementing service code
     status: completed
+  - id: manifold-db-requirements-implementation-tests
+    content: Add manifold-native database deploy/verify requirements and align scripts plus BATS coverage
+    status: completed
 isProject: false
 ---
 
@@ -41,6 +44,9 @@ isProject: false
   - [requirements/manifold_ops_observability-requirements.md](requirements/manifold_ops_observability-requirements.md)
   - [requirements/manifold_config_runtime-requirements.md](requirements/manifold_config_runtime-requirements.md)
   - [requirements/manifold_readme_operability-requirements.md](requirements/manifold_readme_operability-requirements.md)
+- Ensure numbered database workflow docs are manifold-native and traceable:
+  - [requirements/03_deploy_database-requirements.md](requirements/03_deploy_database-requirements.md)
+  - [requirements/04_verify_deploy_database-requirements.md](requirements/04_verify_deploy_database-requirements.md)
 
 ## Content Standards For Each New Requirements Doc
 - Use the existing pattern: `## Scope`, then `R###` entries with `Statement`, `Design`, and `Tests` bullets.

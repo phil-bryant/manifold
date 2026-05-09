@@ -15,48 +15,23 @@ def log_line():
   with open(path, "a", encoding="utf-8") as h:
     h.write("psql " + " ".join(sys.argv[1:]) + "\n")
 
-def get_sql(a):
-  if not a:
-    return ""
-  tail = a[-1]
-  if any(k in tail for k in ("SELECT", "WITH", "select", "with")) or "teller" in tail:
-    return tail
-  if "-Atc" in a:
-    return a[a.index("-Atc") + 1]
-  if "-c" in a:
-    return a[a.index("-c") + 1]
-  return tail
+def get_sql(args):
+  if "-c" in args:
+    return args[args.index("-c") + 1]
+  return ""
 
 def main():
   log_line()
   args = sys.argv[1:]
   sql = get_sql(args)
-  if "teller_read" in sql and "WITH expected" in sql and "role_name" in sql:
-    print("", end="")
+  if "expected(table_name)" in sql and "ingest_batches" in sql:
+    print(os.environ.get("MISSING_TABLES", ""), end="")
     return
-  if "nspname = 'teller'" in sql and "EXISTS" in sql and "pg_namespace" in sql and "pg_constraint" not in sql:
-    print("t", end="")
+  if "expected(index_name)" in sql and "idx_ingest_events_timestamp" in sql:
+    print(os.environ.get("MISSING_INDEXES", ""), end="")
     return
-  if "expected(table_name)" in sql and "institution" in sql and "teller" in sql:
-    print("", end="")
-    return
-  if "transaction_info_view" in sql and "views" in sql and "EXISTS" in sql:
-    print("t", end="")
-    return
-  if "transaction_info_view" in sql and "SELECT 1" in sql and "FROM teller" in sql:
-    print("1", end="")
-    return
-  if "confdeltype" in sql and "transaction_nys_snw_category" in sql:
-    if os.environ.get("FK_BROKEN") == "1":
-      print("f", end="")
-    else:
-      print("t", end="")
-    return
-  if "update_updated_at" in sql and "pg_proc" in sql and "teller" in sql:
-    print("t", end="")
-    return
-  if "pg_trigger" in sql and "transaction_nys_snw_category" in sql and "update_updated_at" in sql:
-    print("t", end="")
+  if "child_rel.relname = 'ingest_events'" in sql and "parent_rel.relname = 'ingest_batches'" in sql:
+    print("f" if os.environ.get("FK_MISSING") == "1" else "t", end="")
     return
   print("t", end="")
 
@@ -66,6 +41,36 @@ PY
   chmod +x "${STUB_BIN}/psql"
 }
 
+make_1psa_stub() {
+  cat > "${STUB_BIN}/1psa" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-p" ]; then
+  case "${2:-}" in
+    localhost_postgres_manifold)
+      printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = "-f" ]; then
+  case "${2:-}" in
+    localhost_postgres_manifold)
+      printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/1psa"
+}
+
 setup() {
   setup_shell_test
   create_repo_fixture
@@ -73,7 +78,7 @@ setup() {
   export PSQL_LOG="${TEST_TMPDIR}/psql.log"
   : > "${PSQL_LOG}"
   make_psql_happy
-  stub_cmd 1psa "echo from1psa"
+  make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin"
   export PSQL_LOG
 }
@@ -89,60 +94,84 @@ teardown() {
 exit 1
 EOF
   chmod +x "${STUB_BIN}/psql"
-  run env TELLER_DB_PASSWORD=pw zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
 }
 
-@test "psql command includes custom host and port from env" {
+@test "fails when 1psa is unavailable" {
   #R005
-  : > "${PSQL_LOG}"
-  make_psql_happy
-  run env TELLER_DB_HOST=custom.local TELLER_DB_PORT=15432 TELLER_DB_PASSWORD=pw TELLER_DB_NAME=d TELLER_DB_USER=u \
-    zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
-  [ "$status" -eq 0 ]
-  grep -F "custom.local" "${PSQL_LOG}"
-  grep -F "15432" "${PSQL_LOG}"
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"1psa is required"* ]]
 }
 
-@test "uses 1psa when teller db password is unset" {
+@test "fails when manifold 1psa credential lookup is empty" {
+  #R005
+  run env MANIFOLD_PASSWORD= zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
+}
+
+@test "fails when psql is unavailable" {
   #R010
-  : > "${PSQL_LOG}"
-  make_psql_happy
-  run env -u TELLER_DB_PASSWORD zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
-  [ "$status" -eq 0 ]
-  [[ "$(cat "${PSQL_LOG}")" == *"psql "* ]]
+  rm -f "${STUB_BIN}/psql"
+  make_1psa_stub
+  export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
+  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"psql is required"* ]]
 }
 
-@test "fails with clear error when database password is empty" {
+@test "fails when required tables are missing" {
   #R015
   : > "${PSQL_LOG}"
   make_psql_happy
-  cat > "${STUB_BIN}/1psa" <<'EOF'
-#!/usr/bin/env bash
-echo ""
-exit 0
-EOF
-  chmod +x "${STUB_BIN}/1psa"
-  run env -u TELLER_DB_PASSWORD zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env MISSING_TABLES=ingest_events \
+    zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"❌ FAIL:"* ]]
+  [[ "$output" == *"missing tables"* ]]
+  [[ "$output" == *"ingest_events"* ]]
 }
 
-@test "fails when classification FK is missing ON DELETE CASCADE" {
-  #R020 #R025
+@test "fails when required indexes are missing" {
+  #R020
   : > "${PSQL_LOG}"
   make_psql_happy
-  run env TELLER_DB_PASSWORD=pw FK_BROKEN=1 zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env MISSING_INDEXES=idx_ingest_events_component \
+    zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"❌ FAIL:"* ]]
-  [[ "$output" == *"CASCADE"* || "$output" == *"cascade"* ]]
+  [[ "$output" == *"missing indexes"* ]]
+  [[ "$output" == *"idx_ingest_events_component"* ]]
+}
+
+@test "fails when ingest_events to ingest_batches FK is missing" {
+  #R025
+  : > "${PSQL_LOG}"
+  make_psql_happy
+  run env FK_MISSING=1 zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing FK: ingest_events(batch_id) -> ingest_batches(batch_id)"* ]]
 }
 
 @test "emits a single pass line for successful verification" {
-  #R030 #R035
+  #R030
   : > "${PSQL_LOG}"
   make_psql_happy
-  run env TELLER_DB_PASSWORD=pw zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
+}
+
+@test "uses fail-fast psql options with fixed local target and manifold user" {
+  #R035
+  : > "${PSQL_LOG}"
+  make_psql_happy
+  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -eq 0 ]
+  grep -F -- "-h localhost" "${PSQL_LOG}"
+  grep -F -- "-p 5432" "${PSQL_LOG}"
+  grep -F -- "-U manifold" "${PSQL_LOG}"
+  grep -F -- "-d manifold" "${PSQL_LOG}"
+  grep -F "ON_ERROR_STOP=1" "${PSQL_LOG}"
 }

@@ -26,7 +26,7 @@ Optional runtime values:
 
 ```bash
 export MANIFOLD_INGEST_KEY="local-ingest-key"
-export MANIFOLD_DATABASE_URL="postgres://postgres:postgres@localhost:5432/manifold?sslmode=disable"
+export MANIFOLD_DATABASE_URL="postgres://localhost:5432/manifold?sslmode=disable"
 go run ./cmd/manifold
 ```
 
@@ -37,8 +37,13 @@ Manifold applies schema automatically at startup from `internal/storage/schema.s
 To provision manually:
 
 ```bash
-psql "${MANIFOLD_DATABASE_URL}" -f internal/storage/schema.sql
+./03_deploy_database.sh
 ```
+
+`03_deploy_database.sh` uses `1psa` items:
+
+- `localhost_postgres_postgres` for postgres admin password
+- `localhost_postgres_manifold` for manifold user password
 
 ## Ingest API
 
