@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 
 REPORT_DIR="${SECURITY_REPORT_DIR:-./.security-reports}"
 RUN_SAST="${RUN_SAST:-true}"
-RUN_DAST="${RUN_DAST:-false}"
+RUN_DAST="${RUN_DAST:-true}"
 FAIL_ON_HIGH_CRITICAL="${SECURITY_FAIL_ON_HIGH_CRITICAL:-true}"
 DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:8080}"
 
@@ -59,7 +59,11 @@ run_sast_lane() {
   fi
 
   set +e
-  gosec -fmt=json -out "${REPORT_DIR}/gosec.json" ./...
+  gosec \
+    -fmt=json \
+    -exclude-dir=.gomodcache \
+    -out "${REPORT_DIR}/gosec.json" \
+    ./...
   GOSEC_EXIT=$?
   set -e
   if [[ "$GOSEC_EXIT" -gt 1 ]]; then
@@ -116,7 +120,11 @@ def load_first_json(path: Path, fallback: Any) -> Any:
 
 semgrep = load_first_json(semgrep_path, {"results": []})
 semgrep_results = semgrep.get("results", []) if isinstance(semgrep, dict) else []
-semgrep_high = sum(1 for item in semgrep_results if str(item.get("extra", {}).get("severity", "")).upper() in {"ERROR", "HIGH"})
+semgrep_high = sum(
+    1
+    for item in semgrep_results
+    if str(item.get("extra", {}).get("severity", "")).upper() in {"CRITICAL", "ERROR", "HIGH"}
+)
 
 gitleaks = load_first_json(gitleaks_path, [])
 if isinstance(gitleaks, list):
@@ -161,7 +169,7 @@ PY
 }
 
 run_dast_lane() {
-  #R025: Support optional DAST lane with deterministic health-check artifacts.
+  #R025: Run DAST lane by default with deterministic health-check artifacts.
   if [[ "$RUN_DAST" != "true" ]]; then
     echo "ℹ️  DAST lane skipped."
     return 0

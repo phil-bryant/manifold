@@ -43,6 +43,15 @@ make_gosec_stub() {
   cat > "${STUB_BIN}/gosec" <<EOF
 #!/usr/bin/env bash
 out=""
+if [ -n "\${GOSEC_EXPECT_ARGS_CONTAIN:-}" ]; then
+  case " \$* " in
+    *"\${GOSEC_EXPECT_ARGS_CONTAIN}"*) ;;
+    *)
+      echo "missing expected gosec arg: \${GOSEC_EXPECT_ARGS_CONTAIN}" >&2
+      exit 2
+      ;;
+  esac
+fi
 while [ "\$#" -gt 0 ]; do
   if [ "\$1" = "-out" ]; then
     out="\$2"
@@ -98,7 +107,7 @@ teardown() {
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   mkdir -p "${TEST_TMPDIR}/elsewhere"
-  run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash -c "cd '${TEST_TMPDIR}/elsewhere' && bash '${FIXTURE_ROOT}/06_run_security_checks.sh'"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/sast-summary.json" ]
@@ -132,7 +141,7 @@ teardown() {
   make_gitleaks_stub '[]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/semgrep.json" ]
@@ -148,20 +157,39 @@ teardown() {
   make_gitleaks_stub '[{"RuleID":"secret"}]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"SAST) gate failed"* ]]
 }
 
-@test "runs DAST health probe and emits DAST artifacts" {
+@test "invokes gosec with gomodcache excluded" {
+  #R015
+  make_semgrep_stub
+  make_gitleaks_stub '[]'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  run env RUN_DAST=false GOSEC_EXPECT_ARGS_CONTAIN="-exclude-dir=.gomodcache" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "runs DAST health probe and emits DAST artifacts by default" {
   #R025
   make_curl_stub 0
-  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-health.log" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-summary.json" ]
+}
+
+@test "skips DAST lane only when explicitly opted out" {
+  #R025
+  run env RUN_SAST=false RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DAST lane skipped."* ]]
 }
 
 @test "fails DAST lane when health probe fails" {
@@ -179,7 +207,7 @@ teardown() {
   make_gitleaks_stub '[]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Security checks completed. Reports:"* ]]

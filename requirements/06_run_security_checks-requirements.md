@@ -31,11 +31,13 @@ Tests:
 - Seed finding-producing scanner outputs and verify gate fails with explicit SAST gate message.
 - Run with clean scanner outputs and verify `sast-summary.json` indicates gate pass.
 
-R025  Statement: Support optional DAST lane with deterministic health-probe artifacts.
-Design: When `RUN_DAST=true`, probe `${DAST_BASE_URL}/healthz` via `curl`, write `dast-health.log`, emit `dast-summary.json`, and fail clearly when the probe fails.
+R025  Statement: Run DAST lane by default with deterministic health-probe artifacts, while allowing explicit opt-out.
+Design: Default `RUN_DAST` to `true`; when enabled, probe `${DAST_BASE_URL}/healthz` via `curl`, write `dast-health.log`, emit `dast-summary.json`, and fail clearly when the probe fails. Skip DAST only when `RUN_DAST=false` is set explicitly.
 Tests:
 - Run DAST lane with passing `curl` stub and verify `dast-health.log` + `dast-summary.json` are created.
 - Run DAST lane with failing `curl` stub and verify explicit non-zero failure output.
+- Run without setting `RUN_DAST` and verify DAST executes.
+- Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
 
 R030  Statement: Emit explicit completion status and report location.
 Design: Print lane completion markers and final success output with resolved report directory path.
@@ -44,4 +46,6 @@ Tests:
 
 ## Changelog
 
+- 2026-05-09: Restored DAST lane in step-06 for server health probing and artifact generation.
+- 2026-05-09: Updated step-06 requirements so DAST defaults to enabled with explicit `RUN_DAST=false` opt-out.
 - 2026-05-09: Added Manifold step-06 security checks requirements with SAST/DAST lane policy and centralized gating.

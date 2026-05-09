@@ -35,7 +35,11 @@ func NewServer(addr string, db ReadinessStore, ingestHandler http.Handler, logge
 	mux.Handle("/v1/events/batch", server.withMiddleware(ingestHandler))
 	mux.Handle("/healthz", server.withMiddleware(http.HandlerFunc(server.handleHealth)))
 	mux.Handle("/readyz", server.withMiddleware(http.HandlerFunc(server.handleReady)))
-	server.server = &http.Server{Addr: addr, Handler: mux}
+	server.server = &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	return server
 }
 

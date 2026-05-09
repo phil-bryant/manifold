@@ -89,3 +89,17 @@ func TestRateLimitReturns429(t *testing.T) {
 		t.Fatalf("expected 429, got %d", second.Code)
 	}
 }
+
+func TestServerSetsReadHeaderTimeout(t *testing.T) {
+	// #R020: Configure ReadHeaderTimeout to mitigate slowloris attacks.
+	server := NewServer(
+		":0",
+		fakeReadinessStore{},
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		0,
+	)
+	if server.server.ReadHeaderTimeout <= 0 {
+		t.Fatalf("expected ReadHeaderTimeout to be configured, got %s", server.server.ReadHeaderTimeout)
+	}
+}
