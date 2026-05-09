@@ -118,6 +118,8 @@ ensure_sast_tools() {
     ensure_brew_formula "shellcheck" "shellcheck"
     ensure_brew_formula "semgrep" "semgrep"
     ensure_brew_formula "gitleaks" "gitleaks"
+    ensure_brew_formula "gosec" "gosec"
+    ensure_brew_formula "govulncheck" "govulncheck"
 }
 
 print_final_guidance() {

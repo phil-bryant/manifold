@@ -85,6 +85,10 @@ EOF
   [ "$status" -eq 0 ]
   run rg "^install gitleaks$" "${TMP_ROOT}/brew.log"
   [ "$status" -eq 0 ]
+  run rg "^install gosec$" "${TMP_ROOT}/brew.log"
+  [ "$status" -eq 0 ]
+  run rg "^install govulncheck$" "${TMP_ROOT}/brew.log"
+  [ "$status" -eq 0 ]
 }
 
 @test "R015: fails when Go version is below minimum" {
@@ -196,6 +200,12 @@ EOF
   [ "$status" -eq 0 ]
   [ "${output}" = "1" ]
   run rg "^install gitleaks$" "${TMP_ROOT}/brew.log" --count
+  [ "$status" -eq 0 ]
+  [ "${output}" = "1" ]
+  run rg "^install gosec$" "${TMP_ROOT}/brew.log" --count
+  [ "$status" -eq 0 ]
+  [ "${output}" = "1" ]
+  run rg "^install govulncheck$" "${TMP_ROOT}/brew.log" --count
   [ "$status" -eq 0 ]
   [ "${output}" = "1" ]
 }

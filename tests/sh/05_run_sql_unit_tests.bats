@@ -13,6 +13,19 @@ EOF
   : > "${CALLS_LOG}"
 }
 
+make_go_stub() {
+  local exit_code="${1:-0}"
+  cat > "${STUB_BIN}/go" <<EOF
+#!/usr/bin/env bash
+echo "go \$*" >> "${CALLS_LOG}"
+if [ "\${1:-}" = "test" ]; then
+  exit ${exit_code}
+fi
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/go"
+}
+
 make_1psa_stub() {
   cat > "${STUB_BIN}/1psa" <<'EOF'
 #!/usr/bin/env bash
@@ -62,6 +75,7 @@ setup() {
   setup_shell_test
   setup_fixture
   make_psql_stub 0
+  make_go_stub 0
   make_1psa_stub
 }
 
@@ -95,6 +109,17 @@ setup() {
   run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"psql is required"* ]]
+}
+
+@test "fails when go is unavailable" {
+  #R010
+  rm -f "${STUB_BIN}/go"
+  make_psql_stub 0
+  make_1psa_stub
+  export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"go is required"* ]]
 }
 
 @test "resolves SQL unit-test path relative to script location" {
@@ -137,7 +162,38 @@ setup() {
   grep -F "ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }
 
-@test "emits a single pass line after successful SQL unit tests" {
+@test "does not run go tests when SQL stage fails" {
+  #R030
+  make_psql_stub 1
+  make_go_stub 0
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  ! grep -F "go test ./..." "${CALLS_LOG}"
+}
+
+@test "fails when go unit tests fail" {
+  #R030
+  make_psql_stub 0
+  make_go_stub 1
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  grep -F "go test ./..." "${CALLS_LOG}"
+}
+
+@test "runs go tests only after SQL unit tests pass" {
+  #R030
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -eq 0 ]
+  local sql_line
+  sql_line="$(grep -n "ingest_schema_pgtap.sql" "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
+  local go_line
+  go_line="$(grep -n "go test ./..." "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
+  [ -n "$sql_line" ]
+  [ -n "$go_line" ]
+  [ "$go_line" -gt "$sql_line" ]
+}
+
+@test "emits a single pass line after successful SQL and Go unit tests" {
   #R035
   run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]

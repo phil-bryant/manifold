@@ -38,12 +38,17 @@ To provision manually:
 
 ```bash
 ./03_deploy_database.sh
+./04_verify_deploy_database.sh
+./05_run_sql_unit_tests.sh
+./06_run_security_checks.sh
 ```
 
 `03_deploy_database.sh` uses `1psa` items:
 
 - `localhost_postgres_postgres` for postgres admin password
 - `localhost_postgres_manifold` for manifold user password
+
+`05_run_sql_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
 
 ## Ingest API
 

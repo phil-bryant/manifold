@@ -15,10 +15,11 @@ Tests:
 - Run with `1psa` unavailable and verify explicit non-zero failure output.
 - Return empty manifold credential from `1psa` and verify explicit non-zero failure output.
 
-R010  Statement: Refuse SQL unit-test execution when `psql` is unavailable.
-Design: Verify `psql` exists on PATH before any SQL invocation.
+R010  Statement: Refuse unit-test execution when required CLIs are unavailable.
+Design: Verify both `psql` and `go` exist on PATH before any SQL or Go unit-test invocation.
 Tests:
 - Run with `psql` missing from PATH and verify explicit non-zero failure output.
+- Run with `go` missing from PATH and verify explicit non-zero failure output.
 
 R015  Statement: Resolve SQL unit-test file path relative to script location.
 Design: Build SQL test file path from script directory so execution is independent of caller working directory.
@@ -35,13 +36,15 @@ Design: Execute `CREATE EXTENSION IF NOT EXISTS pgtap;` via local `psql` using c
 Tests:
 - Verify script invokes extension-create SQL before test-file execution.
 
-R030  Statement: Execute SQL unit tests via fail-fast `psql` invocation.
-Design: Run test SQL file with `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f <sql-test-file>` using credentials resolved from `R005`.
+R030  Statement: Execute SQL unit tests before Go unit tests using fail-fast commands.
+Design: Run SQL test file with `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f <sql-test-file>` using credentials from `R005`, then run `go test ./...` only after SQL tests succeed.
 Tests:
 - Verify test invocation includes `ON_ERROR_STOP=1`, configured database URL, and SQL test file path.
+- Force SQL stage failure and verify `go test` is not attempted.
+- Force `go test` failure and verify script exits non-zero.
 
 R035  Statement: Emit concise operator-readable pass output.
-Design: Print one `✅ PASS:` line only after SQL unit-test execution succeeds.
+Design: Print one `✅ PASS:` line only after SQL and Go unit-test execution succeeds.
 Tests:
 - Verify successful run emits a single `✅ PASS:` line.
 

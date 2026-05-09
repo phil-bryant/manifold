@@ -37,6 +37,12 @@ if ! command -v psql >/dev/null; then
   exit 1
 fi
 
+#R010: Refuse unit tests when go is unavailable.
+if ! command -v go >/dev/null; then
+  echo "go is required but was not found on PATH."
+  exit 1
+fi
+
 #R015: Resolve SQL test file path from script directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SQL_TEST_FILE="${SCRIPT_DIR}/internal/storage/sql/unit/ingest_schema_pgtap.sql"
@@ -51,9 +57,12 @@ fi
 PGPASSWORD="$DB_PASSWORD" \
   psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
 
-#R030: Execute SQL unit tests with fail-fast psql settings.
+#R030: Execute SQL unit tests first with fail-fast psql settings.
 PGPASSWORD="$DB_PASSWORD" \
   psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SQL_TEST_FILE"
 
+#R030: Run Go unit tests only after SQL unit tests pass.
+go test ./...
+
 #R035: Emit concise operator-readable success output.
-echo "✅ PASS: SQL unit tests completed."
+echo "✅ PASS: SQL and Go unit tests completed."

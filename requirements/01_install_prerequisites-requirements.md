@@ -38,7 +38,7 @@ Tests:
 - Run without `golangci-lint` and verify installer attempts `brew install golangci-lint`.
 
 R030  Statement: Ensure SAST/security tooling required by this repository is available.
-Design: Verify/install `shellcheck`, `semgrep`, and `gitleaks` before completion so security and shell-policy lanes are runnable.
+Design: Verify/install `shellcheck`, `semgrep`, `gitleaks`, `gosec`, and `govulncheck` before completion so security and shell-policy lanes are runnable.
 Tests:
 - Run installer without those tools and verify each required formula install is attempted.
 - Rerun installer and verify already-installed tools are not reinstalled.
