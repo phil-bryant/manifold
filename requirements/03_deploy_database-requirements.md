@@ -9,10 +9,11 @@ Design: Use `set -e` and exit non-zero on unrecoverable errors.
 Tests:
 - Force failing SQL execution and verify script exits non-zero.
 
-R005  Statement: Require `1psa` before credential lookup.
-Design: Check `1psa` on PATH before password retrieval.
+R005  Statement: Prefer `1psa` for credential lookup with env fallback.
+Design: Attempt `1psa` lookup first when available, then fall back to env-provided passwords.
 Tests:
-- Run without `1psa` and verify clear failure message.
+- Run with `1psa` available and verify `1psa`-resolved password is used over env values.
+- Run without `1psa` and verify env fallback path is used.
 
 R006  Statement: Ensure `psql` exits immediately when SQL execution hits an error.
 Design: Define shared `psql` options with `-v ON_ERROR_STOP=1` and apply them on every SQL invocation path.
@@ -29,20 +30,20 @@ Design: Provide a dedicated teller helper that injects teller credentials, targe
 Tests:
 - Run schema SQL through helper and verify command includes fail-fast behavior, teller role, and `prod` database target.
 
-R010  Statement: Resolve postgres admin password from configurable 1psa source.
-Design: Use default item/field with override support via environment variables.
+R010  Statement: Resolve postgres admin password from configurable preferred 1psa source.
+Design: Default to `POSTGRES_PSA_ITEM=localhost_postgres_postgres` and `POSTGRES_PSA_FIELD=password`, with env overrides and fallback to `POSTGRES_PASSWORD` when needed.
 Tests:
 - Override item/field and verify resolved password path is used.
 
-R015  Statement: Resolve teller database password from configurable 1psa source.
-Design: Use default teller item/field with override support via environment variables.
+R015  Statement: Resolve teller database password from configurable preferred 1psa source.
+Design: Default to `TELLER_PSA_ITEM=localhost_postgres_manifold` and `TELLER_PSA_FIELD=password`, with env overrides and fallback to `TELLER_PASSWORD` when needed.
 Tests:
 - Override teller item/field and verify resolved password path is used.
 
 R020  Statement: Refuse deploy when required passwords resolve empty.
 Design: Validate both password variables before SQL steps.
 Tests:
-- Return empty password from 1psa and verify script exits non-zero.
+- Return empty passwords from both `1psa` and env fallback and verify script exits non-zero.
 
 R025  Statement: Run admin bootstrap SQL as postgres user.
 Design: Execute `create_database.sql` then `configure_database.sql` with postgres credentials.
@@ -82,3 +83,4 @@ Tests:
 - 2026-04-21: Added R040 trigger-order requirement to ensure full updated_at coverage.
 - 2026-04-22: Added R045 to enforce cascading delete behavior for transaction classifications.
 - 2026-04-19: Initial reverse-engineered requirements for `03_deploy_database.sh`.
+- 2026-05-09: Updated password-resolution precedence to prefer `1psa` with environment fallback.

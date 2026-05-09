@@ -14,10 +14,11 @@ Design: Read `TELLER_DB_HOST`, `TELLER_DB_PORT`, `TELLER_DB_NAME`, and `TELLER_D
 Tests:
 - Override DB host/user env vars and verify `psql` receives the overrides.
 
-R010  Statement: Resolve DB password from environment or 1psa fallback.
-Design: Use `TELLER_DB_PASSWORD` when set, otherwise resolve from `TELLER_PSA_ITEM`.
+R010  Statement: Resolve DB password from preferred 1psa source with env fallback.
+Design: Resolve from `TELLER_PSA_ITEM` first when `1psa` is available, otherwise use `TELLER_DB_PASSWORD`.
 Tests:
-- Unset `TELLER_DB_PASSWORD` and verify fallback credential lookup path is used.
+- Set both sources and verify `1psa` value is used when available.
+- Make `1psa` unavailable and verify `TELLER_DB_PASSWORD` fallback path is used.
 
 R015  Statement: Refuse verification when DB password resolves empty.
 Design: Validate resolved password before running checks, print `❌ FAIL:` with a clear reason, and exit non-zero.
@@ -48,3 +49,4 @@ Tests:
 ## Changelog
 
 - 2026-04-22: Initial requirements for `04_verify_deploy_database.sh`.
+- 2026-05-09: Updated password-resolution precedence to prefer `1psa` with environment fallback.

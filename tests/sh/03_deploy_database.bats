@@ -88,7 +88,7 @@ setup() {
   : > "${CALLS_LOG}"
   cat > "${STUB_BIN}/1psa" <<EOF
 #!/usr/bin/env bash
-echo "1psa \$*" >> "${CALLS_LOG2:-${TEST_TMPDIR}/1psa.log}"
+echo "1psa \$*" >> "\${CALLS_LOG2:-${TEST_TMPDIR}/1psa.log}"
 echo "pw"
 exit 0
 EOF
@@ -100,6 +100,25 @@ EOF
   [ "$status" -eq 0 ]
   grep -F "1psa -p pg_item" "${CALLS_LOG2}"
   grep -F "1psa -p tl_item" "${CALLS_LOG2}"
+}
+
+@test "uses postgres/admin and manifold/app default 1psa items" {
+  #R010 #R015
+  export PATH="${STUB_BIN}:/usr/bin:/bin"
+  cat > "${STUB_BIN}/1psa" <<EOF
+#!/usr/bin/env bash
+echo "1psa \$*" >> "\${CALLS_LOG2:-${TEST_TMPDIR}/1psa.log}"
+echo "pw"
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/1psa"
+  export CALLS_LOG2="${TEST_TMPDIR}/1psa-default.log"
+  : > "${CALLS_LOG2}"
+  run env -u POSTGRES_PSA_ITEM -u POSTGRES_PSA_FIELD -u TELLER_PSA_ITEM -u TELLER_PSA_FIELD \
+    bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  [ "$status" -eq 0 ]
+  grep -F "1psa -p localhost_postgres_postgres" "${CALLS_LOG2}"
+  grep -F "1psa -p localhost_postgres_manifold" "${CALLS_LOG2}"
 }
 
 @test "fails when postgres password is empty" {

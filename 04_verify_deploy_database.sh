@@ -8,20 +8,45 @@ DB_PORT="${TELLER_DB_PORT:-5432}"
 DB_NAME="${TELLER_DB_NAME:-prod}"
 DB_USER="${TELLER_DB_USER:-teller}"
 DB_PASSWORD="${TELLER_DB_PASSWORD:-}"
+DB_PASSWORD_FALLBACK="$DB_PASSWORD"
 
-#R010: Resolve DB password from environment or 1psa fallback.
-if [[ -z "$DB_PASSWORD" ]]; then
-  if ! command -v 1psa >/dev/null 2>&1; then
-    echo "❌ FAIL: TELLER_DB_PASSWORD is unset and 1psa is unavailable for fallback lookup."
-    exit 1
+#R010: Resolve DB password from preferred 1psa source, then env fallback.
+ONEPSA_PATH="$(command -v 1psa || true)"
+if [[ -n "$ONEPSA_PATH" ]]; then
+  resolved_password="$(1psa -p "${TELLER_PSA_ITEM:-localhost_postgres_manifold}")" || resolved_password=""
+  if [[ -n "$resolved_password" ]]; then
+    DB_PASSWORD="$resolved_password"
   fi
-  DB_PASSWORD="$(1psa -p "${TELLER_PSA_ITEM:-localhost_postgres_manifold}")"
 fi
 
 #R015: Refuse verification when DB password resolves empty.
 if [[ -z "$DB_PASSWORD" ]]; then
-  echo "❌ FAIL: Failed to resolve teller DB password."
+  echo "❌ FAIL: Failed to resolve teller DB password from 1psa or TELLER_DB_PASSWORD."
   exit 1
+fi
+
+probe_db_password() {
+  PGPASSWORD="$1" psql \
+    -h "$DB_HOST" \
+    -p "$DB_PORT" \
+    -U "$DB_USER" \
+    -d "$DB_NAME" \
+    -v ON_ERROR_STOP=1 \
+    -c '\q'
+}
+
+if ! probe_db_password "$DB_PASSWORD"; then
+  if [[ -n "$DB_PASSWORD_FALLBACK" && "$DB_PASSWORD_FALLBACK" != "$DB_PASSWORD" ]]; then
+    if probe_db_password "$DB_PASSWORD_FALLBACK"; then
+      DB_PASSWORD="$DB_PASSWORD_FALLBACK"
+    else
+      echo "❌ FAIL: Failed to authenticate with 1psa password and TELLER_DB_PASSWORD fallback."
+      exit 1
+    fi
+  else
+    echo "❌ FAIL: Failed to authenticate with resolved teller DB password."
+    exit 1
+  fi
 fi
 
 db_scalar() {
