@@ -9,6 +9,7 @@ cd "$SCRIPT_DIR"
 REPORT_DIR="${DEPENDENCY_REPORT_DIR:-./.security-reports}"
 GO_BIN="${DEPENDENCY_CHECK_GO_BIN:-go}"
 FAIL_ON_MAJOR="${DEPENDENCY_FAIL_ON_MAJOR:-false}"
+FAIL_ON_ANY="${DEPENDENCY_FAIL_ON_UPDATES:-true}"
 TEXT_REPORT="${REPORT_DIR}/dependency-freshness.txt"
 JSON_REPORT="${REPORT_DIR}/dependency-freshness.json"
 UPDATES_FILE="$(mktemp)"
@@ -73,12 +74,18 @@ fi
   echo "  \"generated_by\": \"02_run_dependency_freshness_checks.sh\","
   echo "  \"total_updates\": ${total_updates},"
   echo "  \"major_updates\": ${major_updates},"
+  echo "  \"fail_on_updates\": ${FAIL_ON_ANY},"
   echo "  \"fail_on_major\": ${FAIL_ON_MAJOR},"
   echo "  \"modules\": [${json_items}]"
   echo "}"
 } > "$JSON_REPORT"
 
 status=0
+if [[ "$FAIL_ON_ANY" == "true" ]] && [[ "$total_updates" -gt 0 ]]; then
+  #R020: Enforce freshness gate on any available dependency update by default.
+  echo "❌ Dependency updates detected (${total_updates}) with DEPENDENCY_FAIL_ON_UPDATES=true"
+  status=1
+fi
 #R020: Support optional major-version gating for CI freshness enforcement.
 if [[ "$FAIL_ON_MAJOR" == "true" ]] && [[ "$major_updates" -gt 0 ]]; then
   echo "❌ Major dependency updates detected (${major_updates}) with DEPENDENCY_FAIL_ON_MAJOR=true"

@@ -32,7 +32,7 @@ go run ./cmd/manifold
 
 ## Database Setup
 
-Manifold applies schema automatically at startup from `internal/storage/schema.sql`.
+Manifold applies schema automatically at startup from `storage/schema.sql`.
 
 To provision manually:
 
@@ -49,6 +49,7 @@ To provision manually:
 - `localhost_postgres_manifold` for manifold user password
 
 `05_run_sql_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
+Security/dependency check reports are written to `.security-reports/` and are intentionally ignored by Git.
 
 ## Ingest API
 

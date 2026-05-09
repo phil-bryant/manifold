@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"manifold/internal/security"
-	"manifold/internal/storage"
+	"manifold/security"
+	"manifold/storage"
 )
 
 type BatchStore interface {

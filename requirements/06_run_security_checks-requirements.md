@@ -14,11 +14,11 @@ Design: Validate required commands before each lane and print `./01_install_prer
 Tests:
 - Run SAST lane with missing `semgrep` and verify non-zero failure plus installer guidance output.
 
-R010  Statement: Run dependency freshness lane through the repository's step-02 runner.
-Design: When `RUN_DEPENDENCY_FRESHNESS=true`, invoke `./02_run_dependency_freshness_checks.sh` with `DEPENDENCY_REPORT_DIR` pointing to the security report directory.
+R010  Statement: Keep step-06 security checks independent from dependency freshness checks.
+Design: Do not invoke `./02_run_dependency_freshness_checks.sh` from step-06; run only SAST and optional DAST lanes within `06_run_security_checks.sh`.
 Tests:
-- Enable dependency lane and verify step-02 runner is invoked and dependency freshness report artifacts are written.
-- Disable dependency lane and verify lane is skipped cleanly.
+- Run step-06 when `02_run_dependency_freshness_checks.sh` is absent and verify SAST execution still succeeds.
+- Verify no dependency freshness artifacts are emitted by step-06.
 
 R015  Statement: Run Go-focused SAST scanners and persist machine-readable artifacts.
 Design: Require `semgrep`, `gitleaks`, `gosec`, and `govulncheck`; write scanner outputs to `semgrep.json`, `gitleaks.json`, `gosec.json`, and `govulncheck.json` under the report directory.

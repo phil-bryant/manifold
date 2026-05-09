@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines runtime configuration behavior for future files `cmd/manifold/main.go` and `internal/config/config.go`.
+Defines runtime configuration behavior for future files `cmd/manifold/main.go` and `config/config.go`.
 
 R001  Statement: Require critical runtime configuration.
 Design: Service startup fails fast when `MANIFOLD_INGEST_KEY` or `MANIFOLD_DATABASE_URL` is missing.

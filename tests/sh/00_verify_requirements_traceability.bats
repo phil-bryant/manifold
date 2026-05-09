@@ -49,6 +49,39 @@ EOF
   chmod +x "${fixture_root}/fixture.sh"
 }
 
+make_go_module_traceability_fixture() {
+  local fixture_root="$1"
+  mkdir -p "${fixture_root}/requirements" "${fixture_root}/tests/sh"
+  cat > "${fixture_root}/requirements/fixture-requirements.md" <<'EOF'
+# Fixture Requirements
+
+## Scope
+
+Applies to `fixture.sh`.
+
+R001  Statement: First behavior.
+EOF
+  cat > "${fixture_root}/fixture.sh" <<'EOF'
+#!/bin/bash
+# #R001: First behavior.
+echo "fixture"
+EOF
+  cat > "${fixture_root}/tests/sh/fixture.bats" <<'EOF'
+#!/usr/bin/env bats
+
+@test "fixture requirement tags" {
+  #R001: First behavior test trace.
+  [ 1 -eq 1 ]
+}
+EOF
+  cat > "${fixture_root}/go.mod" <<'EOF'
+module fixture
+
+go 1.24
+EOF
+  chmod +x "${fixture_root}/fixture.sh"
+}
+
 @test "Traceability tags for verifier requirements" {
   #R001: Strict mode and temp file setup requirement coverage.
   #R005: Default recursive requirements discovery coverage.
@@ -65,6 +98,7 @@ EOF
   #R060: Missing test-traceability ID failure coverage.
   #R065: Anti-cheat header-bundle and scoped comment enforcement coverage.
   #R070: Requirements-only mode traceability-skip coverage.
+  #R075: Go package _test.go coverage enforcement in full-run mode.
   [ 1 -eq 1 ]
 }
 
@@ -111,8 +145,55 @@ Requirements-only mode: true.
 
 R001  Statement: Placeholder requirement while implementation is pending.
 EOF
-  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/00_verify_requirements_traceability.sh"
-  run /bin/bash "${fixture_root}/00_verify_requirements_traceability.sh"
+  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/verify_requirements_traceability.sh"
+  run /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"PASS (requirements-only)"* ]]
+}
+
+@test "Fails full-run mode when go module package has no _test.go files" {
+  #R075
+  local fixture_root stub_root
+  fixture_root="$(mktemp -d)"
+  stub_root="$(mktemp -d)"
+  make_go_module_traceability_fixture "${fixture_root}"
+  cat > "${stub_root}/go" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "list" ] && [ "${2:-}" = "-json" ]; then
+  cat <<'JSON'
+{"ImportPath":"fixture/internal/notested","GoFiles":["notested.go"],"TestGoFiles":[],"XTestGoFiles":[]}
+JSON
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "${stub_root}/go"
+  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/verify_requirements_traceability.sh"
+  run env PATH="${stub_root}:/usr/bin:/bin" /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh'"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Go packages without associated _test.go files"* ]]
+  [[ "$output" == *"fixture/internal/notested"* ]]
+}
+
+@test "Passes full-run mode when go module packages include _test.go files" {
+  #R075
+  local fixture_root stub_root
+  fixture_root="$(mktemp -d)"
+  stub_root="$(mktemp -d)"
+  make_go_module_traceability_fixture "${fixture_root}"
+  cat > "${stub_root}/go" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "list" ] && [ "${2:-}" = "-json" ]; then
+  cat <<'JSON'
+{"ImportPath":"fixture/internal/tested","GoFiles":["tested.go"],"TestGoFiles":["tested_test.go"],"XTestGoFiles":[]}
+JSON
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "${stub_root}/go"
+  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/verify_requirements_traceability.sh"
+  run env PATH="${stub_root}:/usr/bin:/bin" /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Go package test coverage complete"* ]]
 }

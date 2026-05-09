@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines ingest authentication and request-security behavior for future files `internal/security/ingestkey.go` and `internal/ingest/handler.go`.
+Defines ingest authentication and request-security behavior for future files `security/ingestkey.go` and `ingest/handler.go`.
 
 R001  Statement: Require ingest key for batch ingestion.
 Design: `POST /v1/events/batch` requires header `X-Manifold-Ingest-Key`.

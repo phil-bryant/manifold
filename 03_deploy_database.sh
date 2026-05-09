@@ -49,7 +49,7 @@ fi
 
 #R015: Resolve schema path relative to script location.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCHEMA_PATH="${SCRIPT_DIR}/internal/storage/schema.sql"
+SCHEMA_PATH="${SCRIPT_DIR}/storage/schema.sql"
 
 #R020: Refuse deploy when schema file is missing.
 if [ ! -f "$SCHEMA_PATH" ]; then

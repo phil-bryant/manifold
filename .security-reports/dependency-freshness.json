@@ -1,7 +1,0 @@
-{
-  "generated_by": "02_run_dependency_freshness_checks.sh",
-  "total_updates": 12,
-  "major_updates": 0,
-  "fail_on_major": false,
-  "modules": [{"path":"github.com/jackc/pgx/v5","current":"v5.7.6","latest":"v5.9.2","major_update":false},{"path":"github.com/kr/pretty","current":"v0.3.0","latest":"v0.3.1","major_update":false},{"path":"github.com/stretchr/objx","current":"v0.1.0","latest":"v0.5.3","major_update":false},{"path":"github.com/stretchr/testify","current":"v1.8.1","latest":"v1.11.1","major_update":false},{"path":"golang.org/x/crypto","current":"v0.37.0","latest":"v0.51.0","major_update":false},{"path":"golang.org/x/mod","current":"v0.17.0","latest":"v0.36.0","major_update":false},{"path":"golang.org/x/net","current":"v0.21.0","latest":"v0.54.0","major_update":false},{"path":"golang.org/x/sync","current":"v0.13.0","latest":"v0.20.0","major_update":false},{"path":"golang.org/x/sys","current":"v0.32.0","latest":"v0.44.0","major_update":false},{"path":"golang.org/x/term","current":"v0.31.0","latest":"v0.43.0","major_update":false},{"path":"golang.org/x/text","current":"v0.24.0","latest":"v0.37.0","major_update":false},{"path":"golang.org/x/tools","current":"v0.21.1-0.20240508182429-e35e4ccd0d2d","latest":"v0.45.0","major_update":false}]
-}

@@ -25,11 +25,12 @@ Design: Always write `dependency-freshness.json` including total update count, m
 Tests:
 - Run with update-producing stub output and verify JSON report contains counts and module fields.
 
-R020  Statement: Support optional major-update gating for CI.
-Design: When `DEPENDENCY_FAIL_ON_MAJOR=true`, exit non-zero if at least one dependency crosses a major version boundary; otherwise remain non-failing.
+R020  Statement: Enforce dependency freshness failures when updates are available.
+Design: When `DEPENDENCY_FAIL_ON_UPDATES=true` (default), exit non-zero if any dependency update is available. Keep `DEPENDENCY_FAIL_ON_MAJOR` as an additional gate for major-version boundaries.
 Tests:
+- Run with updates present and default configuration and verify non-zero exit.
+- Run with updates present and `DEPENDENCY_FAIL_ON_UPDATES=false` and verify zero exit unless other enabled gates fail.
 - Run with major update present and `DEPENDENCY_FAIL_ON_MAJOR=true` and verify non-zero exit.
-- Run with major update present and default gating disabled and verify zero exit.
 
 R025  Statement: Emit concise status output for operators and CI logs.
 Design: Print selected binary, report file paths, and update counters at completion for quick run diagnostics.

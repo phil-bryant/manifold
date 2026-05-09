@@ -43,6 +43,12 @@ Tests:
 - Force SQL stage failure and verify `go test` is not attempted.
 - Force `go test` failure and verify script exits non-zero.
 
+R032  Statement: Fail when any Go package has no associated `_test.go` files.
+Design: After `go test ./...` succeeds, parse output for `[no test files]` package rows and fail with an explicit list when any are present.
+Tests:
+- Emit simulated `go test` output with `[no test files]` entries and verify explicit non-zero failure output.
+- Emit simulated `go test` output with no `[no test files]` entries and verify run can complete.
+
 R035  Statement: Emit concise operator-readable pass output.
 Design: Print one `✅ PASS:` line only after SQL and Go unit-test execution succeeds.
 Tests:

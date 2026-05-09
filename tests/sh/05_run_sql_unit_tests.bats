@@ -15,10 +15,22 @@ EOF
 
 make_go_stub() {
   local exit_code="${1:-0}"
+  local mode="${2:-with-tests}"
   cat > "${STUB_BIN}/go" <<EOF
 #!/usr/bin/env bash
 echo "go \$*" >> "${CALLS_LOG}"
 if [ "\${1:-}" = "test" ]; then
+  if [ "${mode}" = "with-tests" ]; then
+    cat <<'GOOUT'
+ok      manifold/storage       0.001s
+GOOUT
+  fi
+  if [ "${mode}" = "no-tests" ]; then
+    cat <<'GOOUT'
+?       manifold/cmd/manifold   [no test files]
+ok      manifold/storage       0.001s
+GOOUT
+  fi
   exit ${exit_code}
 fi
 exit 0
@@ -59,8 +71,8 @@ EOF
 setup_fixture() {
   create_repo_fixture
   copy_script_to_fixture "05_run_sql_unit_tests.sh"
-  mkdir -p "${FIXTURE_ROOT}/internal/storage/sql/unit"
-  cat > "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql" <<'EOF'
+  mkdir -p "${FIXTURE_ROOT}/storage/sql/unit"
+  cat > "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql" <<'EOF'
 SELECT plan(1);
 SELECT ok(true, 'stub');
 SELECT * FROM finish();
@@ -126,13 +138,13 @@ setup() {
   #R015
   run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]
-  grep -F "internal/storage/sql/unit/ingest_schema_pgtap.sql" "${CALLS_LOG}"
+  grep -F "storage/sql/unit/ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }
 
 @test "fails when SQL unit-test file is missing" {
   #R020
-  mv "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql" \
-    "${FIXTURE_ROOT}/internal/storage/sql/unit/ingest_schema_pgtap.sql.trash"
+  mv "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql" \
+    "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql.trash"
   run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"SQL unit-test file not found"* ]]
@@ -193,8 +205,25 @@ setup() {
   [ "$go_line" -gt "$sql_line" ]
 }
 
+@test "fails when go test output includes packages with no test files" {
+  #R032
+  make_go_stub 0 "no-tests"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"packages without _test.go files detected"* ]]
+  [[ "$output" == *"manifold/cmd/manifold"* ]]
+}
+
+@test "passes go coverage gate when all packages include test files" {
+  #R032
+  make_go_stub 0 "with-tests"
+  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  [ "$status" -eq 0 ]
+}
+
 @test "emits a single pass line after successful SQL and Go unit tests" {
   #R035
+  make_go_stub 0 "with-tests"
   run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]

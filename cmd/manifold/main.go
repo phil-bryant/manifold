@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"manifold/internal/config"
-	"manifold/internal/httpserver"
-	"manifold/internal/ingest"
-	"manifold/internal/logging"
-	"manifold/internal/security"
-	"manifold/internal/storage"
+	"manifold/config"
+	"manifold/httpserver"
+	"manifold/ingest"
+	"manifold/logging"
+	"manifold/security"
+	"manifold/storage"
 )
 
 func main() {

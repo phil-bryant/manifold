@@ -45,7 +45,7 @@ fi
 
 #R015: Resolve SQL test file path from script directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SQL_TEST_FILE="${SCRIPT_DIR}/internal/storage/sql/unit/ingest_schema_pgtap.sql"
+SQL_TEST_FILE="${SCRIPT_DIR}/storage/sql/unit/ingest_schema_pgtap.sql"
 
 #R020: Fail clearly when SQL unit-test file is missing.
 if [ ! -f "$SQL_TEST_FILE" ]; then
@@ -62,7 +62,19 @@ PGPASSWORD="$DB_PASSWORD" \
   psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SQL_TEST_FILE"
 
 #R030: Run Go unit tests only after SQL unit tests pass.
-go test ./...
+GO_TEST_OUTPUT_FILE="$(mktemp)"
+if ! go test ./... | tee "$GO_TEST_OUTPUT_FILE"; then
+  exit 1
+fi
+
+#R032: Fail when any Go package reports no associated unit-test files.
+NO_TEST_PACKAGES_FILE="$(mktemp)"
+awk '$0 ~ /\[no test files\]/ { print $2 }' "$GO_TEST_OUTPUT_FILE" | sort -u > "$NO_TEST_PACKAGES_FILE"
+if [ -s "$NO_TEST_PACKAGES_FILE" ]; then
+  echo "❌ Go unit test coverage check failed: packages without _test.go files detected."
+  sed 's/^/  - /' "$NO_TEST_PACKAGES_FILE"
+  exit 1
+fi
 
 #R035: Emit concise operator-readable success output.
 echo "✅ PASS: SQL and Go unit tests completed."

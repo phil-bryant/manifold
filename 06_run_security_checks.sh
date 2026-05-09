@@ -9,7 +9,6 @@ cd "$SCRIPT_DIR"
 REPORT_DIR="${SECURITY_REPORT_DIR:-./.security-reports}"
 RUN_SAST="${RUN_SAST:-true}"
 RUN_DAST="${RUN_DAST:-false}"
-RUN_DEPENDENCY_FRESHNESS="${RUN_DEPENDENCY_FRESHNESS:-true}"
 FAIL_ON_HIGH_CRITICAL="${SECURITY_FAIL_ON_HIGH_CRITICAL:-true}"
 DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:8080}"
 
@@ -23,20 +22,6 @@ require_command() {
     echo "Install prerequisites with: ./01_install_prerequisites.sh"
     exit 1
   fi
-}
-
-run_dependency_freshness_lane() {
-  #R010: Run dependency freshness lane through existing step-02 script.
-  if [[ "$RUN_DEPENDENCY_FRESHNESS" != "true" ]]; then
-    echo "ℹ️  Dependency freshness lane skipped."
-    return 0
-  fi
-  if [[ ! -x "./02_run_dependency_freshness_checks.sh" ]]; then
-    echo "❌ Missing executable dependency freshness runner: ./02_run_dependency_freshness_checks.sh"
-    exit 1
-  fi
-  echo "▶ Running dependency freshness lane"
-  DEPENDENCY_REPORT_DIR="$REPORT_DIR" ./02_run_dependency_freshness_checks.sh
 }
 
 run_sast_lane() {
@@ -215,7 +200,7 @@ PY
   echo "✅ Dynamic Application Security Testing (DAST) checks completed."
 }
 
-run_dependency_freshness_lane
+#R010: Keep security checks scoped to SAST/DAST so step-02 remains independent.
 run_sast_lane
 run_dast_lane
 

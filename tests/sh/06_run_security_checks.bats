@@ -2,19 +2,6 @@
 
 load "helpers/common.bash"
 
-write_dependency_lane_stub() {
-  cat > "${FIXTURE_ROOT}/02_run_dependency_freshness_checks.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-report_dir="${DEPENDENCY_REPORT_DIR:-./.security-reports}"
-mkdir -p "$report_dir"
-echo "dependency-lane-ran" > "${report_dir}/dependency-freshness.txt"
-echo '{"total_updates":0,"major_updates":0}' > "${report_dir}/dependency-freshness.json"
-echo "dependency-lane-ran" > "${report_dir}/dependency-lane.log"
-EOF
-  chmod +x "${FIXTURE_ROOT}/02_run_dependency_freshness_checks.sh"
-}
-
 make_semgrep_stub() {
   cat > "${STUB_BIN}/semgrep" <<'EOF'
 #!/usr/bin/env bash
@@ -93,7 +80,6 @@ EOF
 setup_fixture() {
   create_repo_fixture
   copy_script_to_fixture "06_run_security_checks.sh"
-  write_dependency_lane_stub
 }
 
 setup() {
@@ -120,14 +106,14 @@ teardown() {
 
 @test "fails fast with installer guidance when semgrep is missing" {
   #R005
-  run env RUN_DEPENDENCY_FRESHNESS=false RUN_DAST=false PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_DAST=false PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Missing required command: semgrep"* ]]
   [[ "$output" == *"./01_install_prerequisites.sh"* ]]
 }
 
-@test "runs dependency freshness lane and writes dependency artifacts" {
+@test "does not run dependency freshness lane and emits no dependency artifacts" {
   #R010
   make_semgrep_stub
   make_gitleaks_stub '[]'
@@ -136,21 +122,8 @@ teardown() {
   run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" RUN_DAST=false \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
-  [ -f "${FIXTURE_ROOT}/.security-reports/dependency-freshness.txt" ]
-  [ -f "${FIXTURE_ROOT}/.security-reports/dependency-freshness.json" ]
-  [ -f "${FIXTURE_ROOT}/.security-reports/dependency-lane.log" ]
-}
-
-@test "skips dependency freshness lane when disabled" {
-  #R010
-  make_semgrep_stub
-  make_gitleaks_stub '[]'
-  make_gosec_stub '{"Issues":[]}'
-  make_govulncheck_stub '{}'
-  run env RUN_DEPENDENCY_FRESHNESS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
-    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Dependency freshness lane skipped."* ]]
+  [ ! -f "${FIXTURE_ROOT}/.security-reports/dependency-freshness.txt" ]
+  [ ! -f "${FIXTURE_ROOT}/.security-reports/dependency-freshness.json" ]
 }
 
 @test "writes all SAST scanner artifacts and summary" {
@@ -159,7 +132,7 @@ teardown() {
   make_gitleaks_stub '[]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env RUN_DEPENDENCY_FRESHNESS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/semgrep.json" ]
@@ -175,7 +148,7 @@ teardown() {
   make_gitleaks_stub '[{"RuleID":"secret"}]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env RUN_DEPENDENCY_FRESHNESS=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"SAST) gate failed"* ]]
@@ -184,7 +157,7 @@ teardown() {
 @test "runs DAST health probe and emits DAST artifacts" {
   #R025
   make_curl_stub 0
-  run env RUN_SAST=false RUN_DEPENDENCY_FRESHNESS=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-health.log" ]
@@ -194,7 +167,7 @@ teardown() {
 @test "fails DAST lane when health probe fails" {
   #R025
   make_curl_stub 1
-  run env RUN_SAST=false RUN_DEPENDENCY_FRESHNESS=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"DAST health probe failed"* ]]
@@ -206,7 +179,7 @@ teardown() {
   make_gitleaks_stub '[]'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
-  run env RUN_DEPENDENCY_FRESHNESS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Security checks completed. Reports:"* ]]

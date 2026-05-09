@@ -26,7 +26,7 @@ Tests:
 - Return a missing table from fixture `psql` output and verify failure details list the table.
 
 R020  Statement: Verify required ingest indexes exist.
-Design: Assert required indexes from `internal/storage/schema.sql` exist for timestamp, event name, component, and install-id lookups.
+Design: Assert required indexes from `storage/schema.sql` exist for timestamp, event name, component, and install-id lookups.
 Tests:
 - Return a missing index from fixture `psql` output and verify failure details list the index.
 

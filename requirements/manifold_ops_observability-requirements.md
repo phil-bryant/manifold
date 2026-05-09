@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines runtime endpoints and operational telemetry behavior for future files `internal/httpserver/server.go` and `internal/logging/logging.go`.
+Defines runtime endpoints and operational telemetry behavior for future files `httpserver/server.go` and `logging/logging.go`.
 
 R001  Statement: Expose liveness endpoint independent of database state.
 Design: `GET /healthz` returns `200` when process is alive even if dependencies are degraded.

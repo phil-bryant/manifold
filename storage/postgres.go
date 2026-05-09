@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"manifold/internal/model"
+	"manifold/model"
 )
 
 var ErrDuplicateBatchConflict = errors.New("duplicate_batch_conflict")

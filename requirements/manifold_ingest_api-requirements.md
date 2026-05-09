@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines API behavior for future implementation files `cmd/manifold/main.go`, `internal/httpserver/server.go`, and `internal/ingest/handler.go`.
+Defines API behavior for future implementation files `cmd/manifold/main.go`, `httpserver/server.go`, and `ingest/handler.go`.
 
 R001  Statement: Expose batch ingest endpoint at `POST /v1/events/batch`.
 Design: Route only accepts JSON batch uploads for structured Fountain events uploaded by Piston.

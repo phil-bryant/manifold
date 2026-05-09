@@ -4,3 +4,4 @@ bin/*
 .cursor/rules/*
 .gocache/
 .gomodcache/
+.security-reports/

@@ -11,10 +11,10 @@ import (
 	"os"
 	"testing"
 
-	"manifold/internal/ingest"
-	"manifold/internal/model"
-	"manifold/internal/security"
-	"manifold/internal/storage"
+	"manifold/ingest"
+	"manifold/model"
+	"manifold/security"
+	"manifold/storage"
 )
 
 func TestIngestEndToEndIntegration(t *testing.T) {

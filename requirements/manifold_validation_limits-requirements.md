@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines validation and payload-limit behavior for future files `internal/ingest/types.go`, `internal/ingest/validate.go`, and `internal/ingest/handler.go`.
+Defines validation and payload-limit behavior for future files `ingest/types.go`, `ingest/validate.go`, and `ingest/handler.go`.
 
 R001  Statement: Validate batch envelope fields before persistence.
 Design: Require non-empty `batch_id`, parseable `sent_at`, and non-empty `events` array.

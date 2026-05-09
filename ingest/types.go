@@ -1,6 +1,6 @@
 package ingest
 
-import "manifold/internal/model"
+import "manifold/model"
 
 type BatchRequest = model.BatchRequest
 type EventRecord = model.EventRecord

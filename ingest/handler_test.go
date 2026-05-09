@@ -11,8 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"manifold/internal/security"
-	"manifold/internal/storage"
+	"manifold/security"
+	"manifold/storage"
 )
 
 type fakeStore struct {

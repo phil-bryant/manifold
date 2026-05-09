@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"manifold/internal/model"
+	"manifold/model"
 )
 
 func TestPersistBatchIntegration(t *testing.T) {

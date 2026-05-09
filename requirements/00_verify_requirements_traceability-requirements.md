@@ -90,6 +90,12 @@ Tests:
 - Create a requirements-only doc with no source mappings and verify the verifier skips it successfully.
 - Remove the requirements-only declaration and verify missing-source failure resumes.
 
+R075  Statement: Enforce repository Go package `_test.go` coverage in full-run mode.
+Design: During no-argument full-run mode, if `go.mod` exists, enumerate `go list -json ./...` and fail when any package has Go source files but no `TestGoFiles`/`XTestGoFiles`.
+Tests:
+- Run verifier in a Go-module fixture containing a package with `.go` files but no `_test.go` and verify explicit failure output.
+- Add matching `_test.go` coverage and verify pass output.
+
 ## Changelog
 
 - 2026-05-08: Reswizzled for Manifold requirements-first workflow, added requirements-only mode, and removed stale UI-lane assumptions.

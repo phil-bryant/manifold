@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines storage behavior for future files `internal/storage/postgres.go` and `internal/storage/schema.sql`.
+Defines storage behavior for future files `storage/postgres.go` and `storage/schema.sql`.
 
 R001  Statement: Persist accepted raw batches in Postgres.
 Design: Store full raw batch payload in `ingest_batches.raw_json` with metadata fields and received timestamp.

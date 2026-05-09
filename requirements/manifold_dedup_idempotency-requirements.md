@@ -3,7 +3,7 @@
 ## Scope
 
 Requirements-only mode: true.
-Defines deduplication/idempotency behavior for future files `internal/ingest/handler.go` and `internal/storage/postgres.go`.
+Defines deduplication/idempotency behavior for future files `ingest/handler.go` and `storage/postgres.go`.
 
 R001  Statement: Deduplicate events by `event_id`.
 Design: `ingest_events.event_id` is unique; duplicates are treated as already accepted and do not fail ingest.

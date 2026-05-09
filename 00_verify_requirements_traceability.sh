@@ -577,6 +577,8 @@ verify_all_requirements() {
     verify_numbered_script_requirements_coverage || fail=$((fail + 1))
     #R045: Enforce numbered requirements docs map to same-numbered numbered scripts.
     verify_numbered_requirement_scope_alignment || fail=$((fail + 1))
+    #R075: Enforce Go package-level _test.go coverage completeness.
+    verify_go_package_test_coverage || fail=$((fail + 1))
     echo ""
     echo "Summary: total=${total} pass=${pass} fail=${fail}"
     if [ "$fail" -eq 0 ]; then
@@ -657,6 +659,59 @@ verify_numbered_requirement_scope_alignment() {
         echo "✅ PASS: numbered requirements scope alignment complete (NN requirements map to NN scripts)."
         return 0
     fi
+    return 1
+}
+
+verify_go_package_test_coverage() {
+    #R075: Enforce Go package-level unit-test presence when repository uses Go modules.
+    if [ ! -f "go.mod" ]; then
+        echo "ℹ️  Go package test-coverage check skipped (no go.mod in current repository root)."
+        return 0
+    fi
+    if ! command -v go >/dev/null 2>&1; then
+        echo "❌ FAIL: go command is required for Go package test-coverage verification."
+        return 1
+    fi
+    local go_list_json no_tests_file
+    go_list_json="$(mktemp)"
+    no_tests_file="$(mktemp)"
+    if ! go list -json ./... > "$go_list_json"; then
+        echo "❌ FAIL: unable to enumerate Go packages with 'go list -json ./...'."
+        return 1
+    fi
+    python3 - "$go_list_json" "$no_tests_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+json_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+content = json_path.read_text(encoding="utf-8", errors="replace")
+decoder = json.JSONDecoder()
+idx = 0
+missing = []
+while idx < len(content):
+    while idx < len(content) and content[idx].isspace():
+        idx += 1
+    if idx >= len(content):
+        break
+    obj, next_idx = decoder.raw_decode(content, idx)
+    idx = next_idx
+    go_files = obj.get("GoFiles", []) or []
+    cgo_files = obj.get("CgoFiles", []) or []
+    test_go_files = obj.get("TestGoFiles", []) or []
+    x_test_go_files = obj.get("XTestGoFiles", []) or []
+    package_name = obj.get("ImportPath") or obj.get("Dir") or "(unknown)"
+    if (go_files or cgo_files) and not (test_go_files or x_test_go_files):
+        missing.append(package_name)
+output_path.write_text("\n".join(sorted(set(missing))) + ("\n" if missing else ""), encoding="utf-8")
+PY
+    if [ ! -s "$no_tests_file" ]; then
+        echo "✅ PASS: Go package test coverage complete (every package has _test.go files)."
+        return 0
+    fi
+    echo "❌ FAIL: Go packages without associated _test.go files:"
+    sed 's/^/  - /' "$no_tests_file"
     return 1
 }
 

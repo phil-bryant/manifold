@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"manifold/internal/ingest"
+	"manifold/ingest"
 )
 
 type ReadinessStore interface {

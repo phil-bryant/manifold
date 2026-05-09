@@ -26,12 +26,12 @@ Tests:
 - Run script from a non-repo working directory and verify schema file still resolves.
 
 R020  Statement: Refuse deploy when schema file is missing.
-Design: Validate `internal/storage/schema.sql` exists before invoking `psql`.
+Design: Validate `storage/schema.sql` exists before invoking `psql`.
 Tests:
 - Remove schema file in a fixture and verify explicit non-zero failure output.
 
 R025  Statement: Bootstrap manifold role/database and apply schema with fail-fast `psql` execution.
-Design: Connect as postgres to create-or-alter role `manifold`, create-or-own database `manifold`, then execute schema apply as user `manifold` using `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f internal/storage/schema.sql`.
+Design: Connect as postgres to create-or-alter role `manifold`, create-or-own database `manifold`, then execute schema apply as user `manifold` using `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f storage/schema.sql`.
 Tests:
 - Verify deploy invokes admin `psql` bootstrap commands and manifold schema apply with `ON_ERROR_STOP=1`.
 

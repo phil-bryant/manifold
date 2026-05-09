@@ -40,7 +40,7 @@ EOF
   fixture_root="$(mktemp -d)"
   create_go_stub "${fixture_root}"
   run env PATH="${STUB_BIN}:/usr/bin:/bin" /bin/bash "${fixture_root}/02_run_dependency_freshness_checks.sh"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ]
   script_output="$output"
   [ -f "${fixture_root}/.security-reports/dependency-freshness.txt" ]
   [ -f "${fixture_root}/.security-reports/dependency-freshness.json" ]
@@ -49,6 +49,8 @@ EOF
   run rg "\"total_updates\": 2" "${fixture_root}/.security-reports/dependency-freshness.json"
   [ "$status" -eq 0 ]
   run rg "\"major_updates\": 1" "${fixture_root}/.security-reports/dependency-freshness.json"
+  [ "$status" -eq 0 ]
+  run rg "\"fail_on_updates\": true" "${fixture_root}/.security-reports/dependency-freshness.json"
   [ "$status" -eq 0 ]
   [[ "$script_output" == *"json report:"* ]]
 }
@@ -76,11 +78,21 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-@test "R020: allows major updates when fail-on-major is disabled" {
+@test "R020: fails by default when any updates are available" {
   #R020
   local fixture_root
   fixture_root="$(mktemp -d)"
   create_go_stub "${fixture_root}"
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" DEPENDENCY_FAIL_ON_MAJOR=false /bin/bash "${fixture_root}/02_run_dependency_freshness_checks.sh"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" /bin/bash "${fixture_root}/02_run_dependency_freshness_checks.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Dependency updates detected"* ]]
+}
+
+@test "R020: allows updates when fail-on-updates is disabled" {
+  #R020
+  local fixture_root
+  fixture_root="$(mktemp -d)"
+  create_go_stub "${fixture_root}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" DEPENDENCY_FAIL_ON_UPDATES=false DEPENDENCY_FAIL_ON_MAJOR=false /bin/bash "${fixture_root}/02_run_dependency_freshness_checks.sh"
   [ "$status" -eq 0 ]
 }

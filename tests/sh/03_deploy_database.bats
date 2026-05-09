@@ -52,8 +52,8 @@ EOF
 setup_fixture() {
   create_repo_fixture
   copy_script_to_fixture "03_deploy_database.sh"
-  mkdir -p "${FIXTURE_ROOT}/internal/storage"
-  cat > "${FIXTURE_ROOT}/internal/storage/schema.sql" <<'EOF'
+  mkdir -p "${FIXTURE_ROOT}/storage"
+  cat > "${FIXTURE_ROOT}/storage/schema.sql" <<'EOF'
 CREATE TABLE IF NOT EXISTS ingest_batches (id BIGINT PRIMARY KEY);
 EOF
 }
@@ -105,12 +105,12 @@ setup() {
   #R015
   run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -eq 0 ]
-  grep -F "internal/storage/schema.sql" "${CALLS_LOG}"
+  grep -F "storage/schema.sql" "${CALLS_LOG}"
 }
 
 @test "fails when schema file is missing" {
   #R020
-  mv "${FIXTURE_ROOT}/internal/storage/schema.sql" "${FIXTURE_ROOT}/internal/storage/schema.sql.trash"
+  mv "${FIXTURE_ROOT}/storage/schema.sql" "${FIXTURE_ROOT}/storage/schema.sql.trash"
   run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Schema file not found"* ]]
@@ -126,7 +126,7 @@ setup() {
   grep -F -- "-U manifold" "${CALLS_LOG}"
   grep -F -- "-d manifold" "${CALLS_LOG}"
   grep -F "ON_ERROR_STOP=1" "${CALLS_LOG}"
-  grep -F "internal/storage/schema.sql" "${CALLS_LOG}"
+  grep -F "storage/schema.sql" "${CALLS_LOG}"
 }
 
 @test "prints pass line after successful deploy" {
