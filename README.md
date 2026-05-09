@@ -39,7 +39,7 @@ To provision manually:
 ```bash
 ./03_deploy_database.sh
 ./04_verify_deploy_database.sh
-./05_run_sql_unit_tests.sh
+./05_run_unit_tests.sh
 ./06_run_security_checks.sh
 ```
 
@@ -48,7 +48,7 @@ To provision manually:
 - `localhost_postgres_postgres` for postgres admin password
 - `localhost_postgres_manifold` for manifold user password
 
-`05_run_sql_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
+`05_run_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
 Security/dependency check reports are written to `.security-reports/` and are intentionally ignored by Git.
 
 ## Ingest API

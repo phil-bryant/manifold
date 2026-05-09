@@ -34,8 +34,8 @@ fi
 mkdir -p "$REPORT_DIR"
 echo "▶ Running Go dependency freshness checks with ${GO_BIN}"
 
-#R010: Discover available module updates from go list and always emit a text artifact.
-"$GO_BIN" list -m -u -f '{{if .Update}}{{.Path}} {{.Version}} {{.Update.Version}}{{end}}' all | awk 'NF>0' > "$UPDATES_FILE"
+#R010: Discover available direct-module updates from go list and always emit a text artifact.
+"$GO_BIN" list -m -u -f '{{if and (not .Main) (not .Indirect) .Update}}{{.Path}} {{.Version}} {{.Update.Version}}{{end}}' all | awk 'NF>0' > "$UPDATES_FILE"
 {
   echo "Manifold dependency freshness report"
   echo "Generated at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"

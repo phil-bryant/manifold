@@ -70,7 +70,7 @@ EOF
 
 setup_fixture() {
   create_repo_fixture
-  copy_script_to_fixture "05_run_sql_unit_tests.sh"
+  copy_script_to_fixture "05_run_unit_tests.sh"
   mkdir -p "${FIXTURE_ROOT}/storage/sql/unit"
   cat > "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql" <<'EOF'
 SELECT plan(1);
@@ -94,21 +94,21 @@ setup() {
 @test "fails on first psql error" {
   #R001
   make_psql_stub 1
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
 }
 
 @test "fails when 1psa is unavailable" {
   #R005
   export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"1psa is required"* ]]
 }
 
 @test "fails when manifold 1psa credential lookup is empty" {
   #R005
-  run env MANIFOLD_PASSWORD= bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run env MANIFOLD_PASSWORD= bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
@@ -118,7 +118,7 @@ setup() {
   rm -f "${STUB_BIN}/psql"
   make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"psql is required"* ]]
 }
@@ -129,14 +129,14 @@ setup() {
   make_psql_stub 0
   make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"go is required"* ]]
 }
 
 @test "resolves SQL unit-test path relative to script location" {
   #R015
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   grep -F "storage/sql/unit/ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }
@@ -145,14 +145,14 @@ setup() {
   #R020
   mv "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql" \
     "${FIXTURE_ROOT}/storage/sql/unit/ingest_schema_pgtap.sql.trash"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"SQL unit-test file not found"* ]]
 }
 
 @test "creates pgtap extension before running SQL unit tests" {
   #R025
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   local create_line
   create_line="$(grep -n "CREATE EXTENSION IF NOT EXISTS pgtap" "${CALLS_LOG}")"
@@ -164,7 +164,7 @@ setup() {
 
 @test "runs SQL unit tests with fail-fast psql options" {
   #R030
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   grep -F -- "-h localhost" "${CALLS_LOG}"
   grep -F -- "-p 5432" "${CALLS_LOG}"
@@ -178,7 +178,7 @@ setup() {
   #R030
   make_psql_stub 1
   make_go_stub 0
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   ! grep -F "go test ./..." "${CALLS_LOG}"
 }
@@ -187,14 +187,14 @@ setup() {
   #R030
   make_psql_stub 0
   make_go_stub 1
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   grep -F "go test ./..." "${CALLS_LOG}"
 }
 
 @test "runs go tests only after SQL unit tests pass" {
   #R030
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   local sql_line
   sql_line="$(grep -n "ingest_schema_pgtap.sql" "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
@@ -208,7 +208,7 @@ setup() {
 @test "fails when go test output includes packages with no test files" {
   #R032
   make_go_stub 0 "no-tests"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"packages without _test.go files detected"* ]]
   [[ "$output" == *"manifold/cmd/manifold"* ]]
@@ -217,14 +217,14 @@ setup() {
 @test "passes go coverage gate when all packages include test files" {
   #R032
   make_go_stub 0 "with-tests"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
 }
 
 @test "emits a single pass line after successful SQL and Go unit tests" {
   #R035
   make_go_stub 0 "with-tests"
-  run bash "${FIXTURE_ROOT}/05_run_sql_unit_tests.sh"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
 }

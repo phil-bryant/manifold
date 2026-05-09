@@ -21,10 +21,18 @@ create_go_stub() {
 #!/bin/bash
 printf "go %s\n" "\$*" >> "${TMP_ROOT}/calls.log"
 if [ "\$1" = "list" ] && [ "\$2" = "-m" ] && [ "\$3" = "-u" ]; then
-  cat <<'UPDATES'
+  if [[ "\$*" == *"(not .Indirect)"* ]]; then
+    cat <<'UPDATES'
 github.com/jackc/pgx/v5 v5.7.6 v5.8.0
 example.com/legacy/v2 v2.4.0 v3.0.0
 UPDATES
+  else
+    cat <<'UPDATES'
+github.com/jackc/pgx/v5 v5.7.6 v5.8.0
+example.com/legacy/v2 v2.4.0 v3.0.0
+example.com/transitive/lib v1.1.0 v1.2.0
+UPDATES
+  fi
   exit 0
 fi
 exit 0
@@ -46,6 +54,8 @@ EOF
   [ -f "${fixture_root}/.security-reports/dependency-freshness.json" ]
   run rg "github.com/jackc/pgx/v5 v5.7.6 -> v5.8.0" "${fixture_root}/.security-reports/dependency-freshness.txt"
   [ "$status" -eq 0 ]
+  run rg "example.com/transitive/lib" "${fixture_root}/.security-reports/dependency-freshness.txt"
+  [ "$status" -ne 0 ]
   run rg "\"total_updates\": 2" "${fixture_root}/.security-reports/dependency-freshness.json"
   [ "$status" -eq 0 ]
   run rg "\"major_updates\": 1" "${fixture_root}/.security-reports/dependency-freshness.json"

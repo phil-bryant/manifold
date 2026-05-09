@@ -1,8 +1,8 @@
-# Run SQL Unit Tests Requirements
+# Run Unit Tests Requirements
 
 ## Scope
 
-Applies to `05_run_sql_unit_tests.sh`.
+Applies to `05_run_unit_tests.sh`.
 
 R001  Statement: Run SQL unit-test script in strict fail-fast mode.
 Design: Use `bash` strict mode (`set -euo pipefail`) and abort on first command failure.
@@ -56,4 +56,4 @@ Tests:
 
 ## Changelog
 
-- 2026-05-09: Added manifold SQL unit-test runner requirements.
+- 2026-05-09: Renamed unit-test runner requirements to `05_run_unit_tests.sh`.
