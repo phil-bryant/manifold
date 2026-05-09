@@ -18,6 +18,7 @@ func (s fakeReadinessStore) Ping(_ context.Context) error {
 }
 
 func TestHealthzAlwaysOK(t *testing.T) {
+	// #R001: Operational routes are registered and health endpoint responds.
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
@@ -34,6 +35,7 @@ func TestHealthzAlwaysOK(t *testing.T) {
 }
 
 func TestReadyzReflectsDBState(t *testing.T) {
+	// #R015: Readiness returns service unavailable when storage ping fails.
 	server := NewServer(
 		":0",
 		fakeReadinessStore{err: context.DeadlineExceeded},
@@ -50,6 +52,7 @@ func TestReadyzReflectsDBState(t *testing.T) {
 }
 
 func TestRequestIDPropagation(t *testing.T) {
+	// #R005: Middleware preserves caller-provided request ID in response.
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
@@ -70,6 +73,7 @@ func TestRequestIDPropagation(t *testing.T) {
 }
 
 func TestRateLimitReturns429(t *testing.T) {
+	// #R010: Enabled limiter rejects over-limit requests with HTTP 429.
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},

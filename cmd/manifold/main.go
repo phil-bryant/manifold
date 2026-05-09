@@ -24,6 +24,7 @@ func main() {
 }
 
 func run() int {
+	// #R001: Initialize runtime dependencies and fail fast on startup errors.
 	logger := logging.NewLogger()
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
@@ -41,6 +42,7 @@ func run() int {
 			log.Printf("close error: %v", closeErr)
 		}
 	}()
+	// #R005: Apply storage schema before accepting traffic.
 	err = store.ApplySchema(context.Background(), storage.SchemaSQL)
 	if err != nil {
 		logger.Error("schema apply failed", "error", err)
@@ -69,6 +71,7 @@ func run() int {
 			exitCode = 1
 		}
 	case <-stopSignals:
+		// #R010: Gracefully shut down server when termination signals arrive.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		shutdownErr := server.Shutdown(ctx)

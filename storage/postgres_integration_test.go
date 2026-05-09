@@ -3,13 +3,21 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"manifold/model"
 )
 
 func TestPersistBatchIntegration(t *testing.T) {
+	// #R001: Store initialization succeeds when database connectivity is valid.
+	// #R005: Store exposes schema apply/readiness interfaces used in setup.
+	// #R010: Batch persistence writes occur through transactional storage path.
+	// #R020: Event persistence tracks inserted/duplicate counts.
+	// #R001: Embedded schema string is available for schema application.
 	dsn := os.Getenv("MANIFOLD_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("MANIFOLD_DATABASE_URL is required for integration test")
@@ -50,6 +58,7 @@ func TestPersistBatchIntegration(t *testing.T) {
 }
 
 func TestDuplicateBatchConflictIntegration(t *testing.T) {
+	// #R015: Conflicting duplicate batch payloads return deterministic conflict outcome.
 	dsn := os.Getenv("MANIFOLD_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("MANIFOLD_DATABASE_URL is required for integration test")
@@ -89,5 +98,20 @@ func TestDuplicateBatchConflictIntegration(t *testing.T) {
 	_, err = store.PersistBatch(context.Background(), base, rawChanged)
 	if err == nil {
 		t.Fatalf("expected duplicate batch conflict")
+	}
+}
+
+func TestIsUnavailableClassifiesNetworkAndPGCodes(t *testing.T) {
+	// #R025: Transient network/Postgres errors classify as storage unavailable.
+	netErr := &net.OpError{Op: "dial", Err: errors.New("down")}
+	if !IsUnavailable(netErr) {
+		t.Fatalf("expected network op error to be unavailable")
+	}
+	pgErr := &pgconn.PgError{Code: "08006"}
+	if !IsUnavailable(pgErr) {
+		t.Fatalf("expected SQLSTATE 08xxx to be unavailable")
+	}
+	if IsUnavailable(errors.New("boom")) {
+		t.Fatalf("plain errors should not be unavailable")
 	}
 }

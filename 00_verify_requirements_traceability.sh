@@ -213,6 +213,20 @@ def collect_swift_lane(root_dir: str, lane: str, stem: str = "") -> None:
             rel = os.path.relpath(os.path.join(dirpath, filename), repo_root)
             add_path(rel, lane)
 
+def collect_go_package_tests(source_file: str) -> None:
+    #R080: Discover sibling Go package tests for per-file Go requirements docs.
+    if os.path.isabs(source_file):
+        source_path = source_file
+    else:
+        source_path = os.path.join(repo_root, source_file)
+    source_dir = os.path.dirname(source_path)
+    if not os.path.isdir(source_dir):
+        return
+    for filename in sorted(os.listdir(source_dir)):
+        if filename.endswith("_test.go"):
+            rel = os.path.relpath(os.path.join(source_dir, filename), repo_root)
+            add_path(rel, "default")
+
 source_files = []
 if os.path.isfile(source_list_file):
     with open(source_list_file, "r", encoding="utf-8") as handle:
@@ -250,6 +264,8 @@ for source_file in source_files:
         add_path(f"tests/sh/{stem}.bats", "default")
     if ext == ".swift":
         collect_swift_lane("Tests", "default", stem=stem)
+    if ext == ".go":
+        collect_go_package_tests(source_file)
 
 if requirements_file.startswith("requirements/") and os.path.basename(requirements_file)[:2].isdigit():
     tests_sh_root = os.path.join(repo_root, "tests/sh")

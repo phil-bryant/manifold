@@ -96,7 +96,14 @@ Tests:
 - Run verifier in a Go-module fixture containing a package with `.go` files but no `_test.go` and verify explicit failure output.
 - Add matching `_test.go` coverage and verify pass output.
 
+R080  Statement: Discover Go package `_test.go` files for per-file requirements traceability.
+Design: When requirements scope includes `.go` source files, discover all sibling package `*_test.go` files and include them in requirement-ID tagged test coverage checks.
+Tests:
+- Use a fixture requirements doc scoped to a Go source and verify sibling `*_test.go` files are discovered.
+- Omit required `#R` tags from discovered Go tests and verify explicit missing tagged-test failure.
+
 ## Changelog
 
+- 2026-05-09: Added Go package test discovery requirement for per-file Go traceability docs.
 - 2026-05-08: Reswizzled for Manifold requirements-first workflow, added requirements-only mode, and removed stale UI-lane assumptions.
 - 2026-05-07: Reswizzled discovery conventions for Piston (`Tests/sh` + SwiftPM `Tests/`) and removed email app-specific paths.

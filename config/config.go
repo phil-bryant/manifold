@@ -29,6 +29,7 @@ type Config struct {
 }
 
 func LoadFromEnv() (Config, error) {
+	// #R005: Seed immutable runtime config with deterministic defaults.
 	cfg := Config{
 		Addr:              getEnvOr("MANIFOLD_ADDR", defaultAddr),
 		IngestKey:         os.Getenv("MANIFOLD_INGEST_KEY"),
@@ -41,6 +42,7 @@ func LoadFromEnv() (Config, error) {
 		RequestsPerMinute: defaultRequestsPerMinute,
 	}
 	var err error
+	// #R001: Fail when required ingest key or database URL are unset.
 	if cfg.IngestKey == "" {
 		err = fmt.Errorf("missing MANIFOLD_INGEST_KEY")
 	}
@@ -48,6 +50,7 @@ func LoadFromEnv() (Config, error) {
 		err = fmt.Errorf("missing MANIFOLD_DATABASE_URL")
 	}
 	if err == nil {
+		// #R010: Enforce positive numeric limits for ingest payload controls.
 		cfg.MaxBodyBytes, err = parsePositiveIntFromEnv("MANIFOLD_MAX_BODY_BYTES", cfg.MaxBodyBytes)
 	}
 	if err == nil {
@@ -63,6 +66,7 @@ func LoadFromEnv() (Config, error) {
 		cfg.MaxFieldStrBytes, err = parsePositiveIntFromEnv("MANIFOLD_MAX_FIELD_STRING_BYTES", cfg.MaxFieldStrBytes)
 	}
 	if err == nil {
+		// #R015: Allow disabled rate limiting as zero, reject negative values.
 		cfg.RequestsPerMinute, err = parseNonNegativeIntFromEnv("MANIFOLD_REQUESTS_PER_MINUTE", cfg.RequestsPerMinute)
 	}
 	return cfg, err

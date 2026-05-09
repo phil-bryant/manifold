@@ -4,8 +4,10 @@ import "manifold/model"
 
 type BatchRequest = model.BatchRequest
 type EventRecord = model.EventRecord
+// #R001: Re-export persistence result contract through ingest package aliases.
 type PersistResult = model.PersistResult
 
+// #R005: Define stable API response envelope for ingest handlers.
 type APIResponse struct {
 	Accepted            bool   `json:"accepted"`
 	BatchID             string `json:"batch_id,omitempty"`
@@ -17,6 +19,7 @@ type APIResponse struct {
 	Path                string `json:"path,omitempty"`
 }
 
+// #R010: Carry validation metadata and expose message via Error().
 type ValidationError struct {
 	Code    string
 	Message string

@@ -31,6 +31,7 @@ func NewServer(addr string, db ReadinessStore, ingestHandler http.Handler, logge
 		logger:      logger,
 		limiter:     newMinuteLimiter(requestsPerMinute),
 	}
+	// #R001: Register ingest and operational routes during server construction.
 	mux.Handle("/v1/events/batch", server.withMiddleware(ingestHandler))
 	mux.Handle("/healthz", server.withMiddleware(http.HandlerFunc(server.handleHealth)))
 	mux.Handle("/readyz", server.withMiddleware(http.HandlerFunc(server.handleReady)))
@@ -53,10 +54,12 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now().UTC()
+		// #R005: Preserve a sanitized request ID across request/response lifecycle.
 		requestID := sanitizeOrGenerateRequestID(r.Header.Get("X-Request-ID"))
 		w.Header().Set("X-Request-ID", requestID)
 		r.Header.Set("X-Request-ID", requestID)
 		wrapped := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		// #R010: Enforce per-minute request quotas when limiter is enabled.
 		if s.limiter.Enabled() && !s.limiter.Allow() {
 			response := ingest.APIResponse{Accepted: false, ErrorCode: "rate_limited", Message: "rate limited"}
 			err := writeJSONResponse(wrapped, http.StatusTooManyRequests, response)
@@ -89,6 +92,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	payload := map[string]interface{}{"ok": true}
+	// #R015: Report readiness based on storage ping availability.
 	err := s.readinessDB.Ping(r.Context())
 	if err != nil {
 		status = http.StatusServiceUnavailable

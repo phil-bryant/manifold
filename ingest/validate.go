@@ -24,6 +24,7 @@ type Limits struct {
 
 func ValidateBatch(batch BatchRequest, limits Limits) error {
 	var err error
+	// #R001: Enforce required batch envelope fields and sent_at format.
 	if strings.TrimSpace(batch.BatchID) == "" {
 		err = ValidationError{Code: "invalid_schema", Message: "batch_id is required", Path: "batch_id"}
 	}
@@ -36,6 +37,7 @@ func ValidateBatch(batch BatchRequest, limits Limits) error {
 	if err == nil && len(batch.Events) == 0 {
 		err = ValidationError{Code: "invalid_schema", Message: "events must not be empty", Path: "events"}
 	}
+	// #R005: Enforce configured maximum events per batch.
 	if err == nil && len(batch.Events) > limits.MaxEventsPerBatch {
 		err = ValidationError{Code: "too_many_events", Message: "too many events in batch", Path: "events"}
 	}
@@ -50,6 +52,7 @@ func ValidateBatch(batch BatchRequest, limits Limits) error {
 func validateEvent(event EventRecord, index int, limits Limits) error {
 	pathPrefix := fmt.Sprintf("events[%d]", index)
 	var err error
+	// #R010: Validate event schema version, identifiers, timestamp, and level.
 	if event.SchemaVersion != 1 {
 		err = ValidationError{Code: "invalid_schema", Message: "schema_version must be 1", Path: pathPrefix + ".schema_version"}
 	}
@@ -71,6 +74,7 @@ func validateEvent(event EventRecord, index int, limits Limits) error {
 	if err == nil && !identifierPattern.MatchString(event.Component) {
 		err = ValidationError{Code: "invalid_schema", Message: "invalid component identifier", Path: pathPrefix + ".component"}
 	}
+	// #R015: Enforce field-count and encoded event-size limits.
 	if err == nil && len(event.Fields) > limits.MaxFieldsPerEvent {
 		err = ValidationError{
 			Code: "invalid_schema", Message: "fields key count exceeds max", Path: pathPrefix + ".fields",
@@ -87,6 +91,7 @@ func validateEvent(event EventRecord, index int, limits Limits) error {
 	}
 	for key, value := range event.Fields {
 		if err == nil {
+			// #R020: Reject denylisted sensitive keys and non-scalar field values.
 			lower := strings.ToLower(strings.TrimSpace(key))
 			if slices.Contains(denylistedKeys, lower) {
 				err = ValidationError{

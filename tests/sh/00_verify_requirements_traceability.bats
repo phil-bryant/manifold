@@ -82,6 +82,57 @@ EOF
   chmod +x "${fixture_root}/fixture.sh"
 }
 
+make_go_source_traceability_fixture() {
+  local fixture_root="$1" with_tag="$2"
+  mkdir -p "${fixture_root}/requirements/pkg" "${fixture_root}/pkg"
+  cat > "${fixture_root}/go.mod" <<'EOF'
+module fixture
+
+go 1.24
+EOF
+  cat > "${fixture_root}/requirements/pkg/example-requirements.md" <<'EOF'
+# Example Go Requirements
+
+## Scope
+
+Applies to `pkg/example.go`.
+
+R001  Statement: Example behavior.
+EOF
+  cat > "${fixture_root}/pkg/example.go" <<'EOF'
+package pkg
+
+// #R001: Example behavior implementation.
+func Example() string { return "ok" }
+EOF
+  if [ "${with_tag}" = "with-tag" ]; then
+    cat > "${fixture_root}/pkg/example_test.go" <<'EOF'
+package pkg
+
+import "testing"
+
+func TestExample(t *testing.T) {
+  // #R001: Example Go test tag discovered from package test file.
+  if Example() != "ok" {
+    t.Fatalf("unexpected")
+  }
+}
+EOF
+  else
+    cat > "${fixture_root}/pkg/example_test.go" <<'EOF'
+package pkg
+
+import "testing"
+
+func TestExample(t *testing.T) {
+  if Example() != "ok" {
+    t.Fatalf("unexpected")
+  }
+}
+EOF
+  fi
+}
+
 @test "Traceability tags for verifier requirements" {
   #R001: Strict mode and temp file setup requirement coverage.
   #R005: Default recursive requirements discovery coverage.
@@ -99,6 +150,7 @@ EOF
   #R065: Anti-cheat header-bundle and scoped comment enforcement coverage.
   #R070: Requirements-only mode traceability-skip coverage.
   #R075: Go package _test.go coverage enforcement in full-run mode.
+  #R080: Go source scoped requirements discover sibling _test.go files.
   [ 1 -eq 1 ]
 }
 
@@ -196,4 +248,26 @@ EOF
   run env PATH="${stub_root}:/usr/bin:/bin" /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Go package test coverage complete"* ]]
+}
+
+@test "Fails when discovered Go package tests do not include requirement tags" {
+  #R080
+  local fixture_root
+  fixture_root="$(mktemp -d)"
+  make_go_source_traceability_fixture "${fixture_root}" "without-tag"
+  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/verify_requirements_traceability.sh"
+  run /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh' './requirements/pkg/example-requirements.md' './pkg/example.go'"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing tagged tests for requirement IDs"* ]]
+}
+
+@test "Passes when Go source requirements discover sibling tagged _test.go files" {
+  #R080
+  local fixture_root
+  fixture_root="$(mktemp -d)"
+  make_go_source_traceability_fixture "${fixture_root}" "with-tag"
+  cp "${BATS_TEST_DIRNAME}/../../00_verify_requirements_traceability.sh" "${fixture_root}/verify_requirements_traceability.sh"
+  run /bin/bash -c "cd '${fixture_root}' && /bin/bash './verify_requirements_traceability.sh' './requirements/pkg/example-requirements.md' './pkg/example.go'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS (test-traceability)"* ]]
 }

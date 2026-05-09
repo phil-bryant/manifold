@@ -23,6 +23,7 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
+	// #R001: Open pgx-backed SQL connection and verify connectivity at startup.
 	db, err := sql.Open("pgx", databaseURL)
 	if err == nil {
 		err = db.Ping()
@@ -40,6 +41,7 @@ func (s *PostgresStore) Ping(ctx context.Context) error {
 }
 
 func (s *PostgresStore) ApplySchema(ctx context.Context, schema string) error {
+	// #R005: Execute schema application through store interface.
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
@@ -48,6 +50,7 @@ func (s *PostgresStore) PersistBatch(ctx context.Context, batch model.BatchReque
 	result := model.PersistResult{BatchID: batch.BatchID}
 	hashBytes := sha256.Sum256(rawBody)
 	payloadHash := hex.EncodeToString(hashBytes[:])
+	// #R010: Persist batch/event writes in a single transaction with rollback on error.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err == nil {
 		err = s.persistBatchTransaction(ctx, tx, batch, rawBody, payloadHash, &result)
@@ -74,6 +77,7 @@ func (s *PostgresStore) persistBatchTransaction(
 		ctx, "SELECT payload_hash, event_count FROM ingest_batches WHERE batch_id = $1", batch.BatchID,
 	)
 	scanErr := row.Scan(&existingHash, &existingCount)
+	// #R015: Enforce batch-id idempotency and conflicting payload detection.
 	if scanErr == nil && existingHash != payloadHash {
 		err = ErrDuplicateBatchConflict
 	}
@@ -117,6 +121,7 @@ func (s *PostgresStore) persistBatchTransaction(
 			}
 			var rows sql.Result
 			if err == nil {
+				// #R020: Tolerate duplicate event IDs while tracking duplicate counts.
 				rows, err = tx.ExecContext(
 					ctx,
 					"INSERT INTO ingest_events(batch_id, event_id, schema_version, event_name, component, level, timestamp, "+
@@ -149,6 +154,7 @@ func (s *PostgresStore) persistBatchTransaction(
 }
 
 func IsUnavailable(err error) bool {
+	// #R025: Classify transient network and Postgres availability failures.
 	unavailable := false
 	var netErr net.Error
 	var opErr *net.OpError

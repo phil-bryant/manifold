@@ -36,6 +36,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var status int
 	response := APIResponse{}
 	var logAttrs []any
+	// #R001: Reject unsupported methods and content types before processing.
 	if r.Method != http.MethodPost {
 		status = http.StatusMethodNotAllowed
 		response = APIResponse{Accepted: false, ErrorCode: "method_not_allowed", Message: "method not allowed"}
@@ -47,11 +48,13 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Accepted: false, ErrorCode: "invalid_content_type", Message: "Content-Type must be application/json",
 		}
 	}
+	// #R005: Enforce shared ingest-key authorization.
 	providedKey := strings.TrimSpace(r.Header.Get("X-Manifold-Ingest-Key"))
 	if status == 0 && !h.validator.IsAuthorized(providedKey) {
 		status = http.StatusUnauthorized
 		response = APIResponse{Accepted: false, ErrorCode: "unauthorized", Message: "invalid ingest key"}
 	}
+	// #R010: Enforce body-size bounds and readable JSON payloads.
 	var rawBody []byte
 	if status == 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, int64(h.maxBodyBytes))
@@ -69,7 +72,9 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// #R015: Validate decoded payload against ingest schema/limits before persistence.
 	var batch BatchRequest
+	// #R020: Map storage-layer outcomes to deterministic API status/error contracts.
 	if status == 0 {
 		decodeErr := json.Unmarshal(rawBody, &batch)
 		if decodeErr != nil {
@@ -111,6 +116,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if persistErr == nil {
+			// #R025: Return successful acceptance envelope with persisted counters.
 			status = http.StatusOK
 			response = APIResponse{
 				Accepted:            true,
