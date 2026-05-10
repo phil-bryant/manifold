@@ -41,6 +41,7 @@ To provision manually:
 ./04_verify_deploy_database.sh
 ./05_run_unit_tests.sh
 ./06_run_security_checks.sh
+./07_run_av_checks.sh
 ```
 
 `03_deploy_database.sh` uses `1psa` items:

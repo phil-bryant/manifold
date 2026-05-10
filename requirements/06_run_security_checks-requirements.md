@@ -20,8 +20,8 @@ Tests:
 - Run step-06 when `02_run_dependency_freshness_checks.sh` is absent and verify SAST execution still succeeds.
 - Verify no dependency freshness artifacts are emitted by step-06.
 
-R015  Statement: Run Go-focused SAST scanners and persist machine-readable artifacts.
-Design: Require `semgrep`, `gitleaks`, `gosec`, and `govulncheck`; write scanner outputs to `semgrep.json`, `gitleaks.json`, `gosec.json`, and `govulncheck.json` under the report directory.
+R015  Statement: Run SAST scanners (including shell script linting) and persist machine-readable artifacts.
+Design: Require `semgrep`, `shellcheck`, `gitleaks`, `gosec`, and `govulncheck`; write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `gosec.json`, and `govulncheck.json` under the report directory.
 Tests:
 - Run SAST lane with stubs and verify each expected scanner artifact file is generated.
 
@@ -31,21 +31,45 @@ Tests:
 - Seed finding-producing scanner outputs and verify gate fails with explicit SAST gate message.
 - Run with clean scanner outputs and verify `sast-summary.json` indicates gate pass.
 
-R025  Statement: Run DAST lane by default with deterministic health-probe artifacts, while allowing explicit opt-out.
-Design: Default `RUN_DAST` to `true`; when enabled, probe `${DAST_BASE_URL}/healthz` via `curl`, write `dast-health.log`, emit `dast-summary.json`, and fail clearly when the probe fails. Skip DAST only when `RUN_DAST=false` is set explicitly.
+R025  Statement: Enable DAST by default while allowing explicit opt-out.
+Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false` is set explicitly.
 Tests:
-- Run DAST lane with passing `curl` stub and verify `dast-health.log` + `dast-summary.json` are created.
-- Run DAST lane with failing `curl` stub and verify explicit non-zero failure output.
 - Run without setting `RUN_DAST` and verify DAST executes.
 - Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
 
-R030  Statement: Emit explicit completion status and report location.
+R030  Statement: Probe service health before launching DAST scanning.
+Design: Require a successful `curl` probe to `${DAST_BASE_URL}/healthz`, enforce bounded runtime via `DAST_HEALTH_PROBE_TIMEOUT_SECONDS`, write `dast-health.log`, and fail with explicit diagnostics when the probe fails or times out.
+Tests:
+- Run DAST lane with failing `curl` stub and verify explicit non-zero failure output.
+- Run DAST lane with passing `curl` and verify `dast-health.log` is created.
+
+R035  Statement: Execute OWASP ZAP baseline scans with deterministic runner fallback.
+Design: Resolve host-native runner from PATH `zap-baseline.py` or ZAP CLI (`ZAP.sh`/`zap.sh`) under PATH/`ZAP_APP_PATH` (`/Applications/ZAP.app` by default), execute against `DAST_ZAP_TARGET_URL` (defaulting to `DAST_BASE_URL`) with bounded runtime via `DAST_ZAP_TIMEOUT_SECONDS`, and fail clearly when runner discovery, scanner execution, timeout, or report generation fails.
+Tests:
+- Run DAST lane with local `zap-baseline.py` stub and verify `dast-zap-report.json` is created.
+- Run DAST lane without `zap-baseline.py` and without ZAP CLI and verify explicit missing-command failure output.
+- Run DAST lane with ZAP CLI available only under `ZAP_APP_PATH` and verify scan invocation succeeds.
+
+R040  Statement: Aggregate DAST findings into a centralized gating summary.
+Design: Build `dast-summary.json` from OWASP ZAP report alerts scoped to `DAST_ZAP_TARGET_URL` host/port instances, allow configurable alert-ref suppression via `DAST_IGNORED_ALERT_REFS` (default includes known API-noise `10055-13`), include risk counts and gate state, and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and unsuppressed in-scope medium/high alerts are present.
+Tests:
+- Run DAST lane with clean scanner output and verify `dast-summary.json` indicates gate pass.
+- Run DAST lane with medium/high scanner findings and verify explicit DAST gate failure output.
+- Run DAST lane with only suppressed medium alert refs and verify gate pass.
+- Run DAST lane with off-target alert instances and verify they are excluded from gate evaluation.
+
+R045  Statement: Emit explicit completion status and report location.
 Design: Print lane completion markers and final success output with resolved report directory path.
 Tests:
 - Run with enabled lanes passing and verify final completion line includes `Reports:`.
 
 ## Changelog
 
+- 2026-05-10: Added configurable DAST alert-ref suppression (`DAST_IGNORED_ALERT_REFS`) for known API-focused false positives.
+- 2026-05-10: Added `ZAP_APP_PATH`-based discovery fallback for host-native `zap-baseline.py`.
+- 2026-05-10: Split DAST requirements into granular execution, health-probe, scanner, and gate controls.
+- 2026-05-09: Added `shellcheck` to step-06 SAST toolchain, artifacts, and gating summary inputs.
 - 2026-05-09: Restored DAST lane in step-06 for server health probing and artifact generation.
 - 2026-05-09: Updated step-06 requirements so DAST defaults to enabled with explicit `RUN_DAST=false` opt-out.
 - 2026-05-09: Added Manifold step-06 security checks requirements with SAST/DAST lane policy and centralized gating.
+- 2026-05-09: Expanded DAST lane to run health probe plus OWASP ZAP baseline scan with scanner-backed gating artifacts.

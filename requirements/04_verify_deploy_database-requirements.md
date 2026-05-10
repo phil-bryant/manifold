@@ -5,7 +5,7 @@
 Applies to `04_verify_deploy_database.sh`.
 
 R001  Statement: Run in strict shell mode and fail fast.
-Design: Use `zsh` shebang and `set -euo pipefail`.
+Design: Use POSIX `sh` shebang and `set -eu`.
 Tests:
 - Cause a command failure and verify script exits non-zero.
 

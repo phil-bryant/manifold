@@ -94,21 +94,21 @@ teardown() {
 exit 1
 EOF
   chmod +x "${STUB_BIN}/psql"
-  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
 }
 
 @test "fails when 1psa is unavailable" {
   #R005
   export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"1psa is required"* ]]
 }
 
 @test "fails when manifold 1psa credential lookup is empty" {
   #R005
-  run env MANIFOLD_PASSWORD= zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env MANIFOLD_PASSWORD= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
@@ -118,7 +118,7 @@ EOF
   rm -f "${STUB_BIN}/psql"
   make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
-  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"psql is required"* ]]
 }
@@ -128,7 +128,7 @@ EOF
   : > "${PSQL_LOG}"
   make_psql_happy
   run env MISSING_TABLES=ingest_events \
-    zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+    sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing tables"* ]]
   [[ "$output" == *"ingest_events"* ]]
@@ -139,7 +139,7 @@ EOF
   : > "${PSQL_LOG}"
   make_psql_happy
   run env MISSING_INDEXES=idx_ingest_events_component \
-    zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+    sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing indexes"* ]]
   [[ "$output" == *"idx_ingest_events_component"* ]]
@@ -149,7 +149,7 @@ EOF
   #R025
   : > "${PSQL_LOG}"
   make_psql_happy
-  run env FK_MISSING=1 zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env FK_MISSING=1 sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing FK: ingest_events(batch_id) -> ingest_batches(batch_id)"* ]]
 }
@@ -158,7 +158,7 @@ EOF
   #R030
   : > "${PSQL_LOG}"
   make_psql_happy
-  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
 }
@@ -167,7 +167,7 @@ EOF
   #R035
   : > "${PSQL_LOG}"
   make_psql_happy
-  run zsh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -eq 0 ]
   grep -F -- "-h localhost" "${PSQL_LOG}"
   grep -F -- "-p 5432" "${PSQL_LOG}"

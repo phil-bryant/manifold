@@ -5,6 +5,7 @@ umask 007
 set -euo pipefail
 
 MIN_GO_VERSION="${MANIFOLD_MIN_GO_VERSION:-1.22}"
+ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
 
 print_header() {
     echo "============================================================"
@@ -27,7 +28,9 @@ ensure_homebrew() {
 }
 
 ensure_brew_formula() {
-    local formula="$1" command_name="${2:-$formula}"
+    local formula="$1"
+    local command_name
+    command_name="${2:-$formula}"
     echo "[${formula}] Checking..."
     if command -v "$command_name" >/dev/null 2>&1; then
         echo "✅ [${formula}] Available on PATH"
@@ -120,6 +123,88 @@ ensure_sast_tools() {
     ensure_brew_formula "gitleaks" "gitleaks"
     ensure_brew_formula "gosec" "gosec"
     ensure_brew_formula "govulncheck" "govulncheck"
+    ensure_brew_formula "clamav" "clamscan"
+}
+
+ensure_dast_tools() {
+    #R055: Ensure DAST runtime tooling is available for step-06.
+    local zap_baseline_path=""
+    local zap_cli_path=""
+    echo "[OWASP ZAP] Checking..."
+    if zap_baseline_path="$(resolve_zap_baseline)"; then
+        echo "✅ [OWASP ZAP] zap-baseline available via ${zap_baseline_path}"
+        return
+    fi
+    if zap_cli_path="$(resolve_zap_cli)"; then
+        echo "✅ [OWASP ZAP] CLI available via ${zap_cli_path}"
+        return
+    fi
+    echo "⚠️  [OWASP ZAP] zap-baseline missing; installing Homebrew cask 'zap'..."
+    brew install --cask zap
+    if zap_baseline_path="$(resolve_zap_baseline)"; then
+        echo "✅ [OWASP ZAP] Installed and zap-baseline available via ${zap_baseline_path}"
+        return
+    fi
+    if zap_cli_path="$(resolve_zap_cli)"; then
+        echo "✅ [OWASP ZAP] Installed and CLI available via ${zap_cli_path}"
+        return
+    fi
+    echo "❌ [OWASP ZAP] Install completed but neither zap-baseline.py nor ZAP.sh were discovered."
+    echo "Set ZAP_APP_PATH if ZAP.app is installed in a non-standard location, then rerun."
+    exit 1
+}
+
+resolve_zap_baseline() {
+    if command -v zap-baseline.py >/dev/null 2>&1; then
+        echo "zap-baseline.py"
+        return 0
+    fi
+    if [ ! -d "${ZAP_APP_PATH}" ]; then
+        return 1
+    fi
+    python3 - "${ZAP_APP_PATH}" <<'PY'
+import os
+import sys
+
+zap_app_path = sys.argv[1]
+candidates = [
+    os.path.join(zap_app_path, "Contents", "Resources", "zap-baseline.py"),
+    os.path.join(zap_app_path, "Contents", "Java", "zap-baseline.py"),
+    os.path.join(zap_app_path, "Contents", "Java", "scripts", "zap-baseline.py"),
+]
+for candidate in candidates:
+    if os.path.isfile(candidate):
+        print(candidate)
+        raise SystemExit(0)
+for root, _dirs, files in os.walk(zap_app_path):
+    if "zap-baseline.py" in files:
+        print(os.path.join(root, "zap-baseline.py"))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+resolve_zap_cli() {
+    local candidate=""
+    if command -v ZAP.sh >/dev/null 2>&1; then
+        echo "ZAP.sh"
+        return 0
+    fi
+    if command -v zap.sh >/dev/null 2>&1; then
+        echo "zap.sh"
+        return 0
+    fi
+    candidate="${ZAP_APP_PATH}/Contents/MacOS/ZAP.sh"
+    if [ -x "${candidate}" ]; then
+        echo "${candidate}"
+        return 0
+    fi
+    candidate="${ZAP_APP_PATH}/Contents/Java/zap.sh"
+    if [ -x "${candidate}" ]; then
+        echo "${candidate}"
+        return 0
+    fi
+    return 1
 }
 
 print_final_guidance() {
@@ -146,6 +231,7 @@ main() {
     ensure_postgres_cli
     ensure_lint_tools
     ensure_sast_tools
+    ensure_dast_tools
     print_final_guidance
 }
 
