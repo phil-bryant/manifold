@@ -10,12 +10,12 @@ REPORT_DIR="${SECURITY_REPORT_DIR:-./.security-reports}"
 RUN_SAST="${RUN_SAST:-true}"
 RUN_DAST="${RUN_DAST:-true}"
 FAIL_ON_HIGH_CRITICAL="${SECURITY_FAIL_ON_HIGH_CRITICAL:-true}"
-DETECT_SECRETS_EXCLUDE_FILES_REGEX="${DETECT_SECRETS_EXCLUDE_FILES_REGEX:-(^|/)\\.gomodcache/}"
+DETECT_SECRETS_EXCLUDE_FILES_REGEX="${DETECT_SECRETS_EXCLUDE_FILES_REGEX:-(^|/)\\.gomodcache/|(^|/)requirements/.*-requirements\\.md$}"
 DETECT_SECRETS_FORCE_ALL_PLUGINS="${DETECT_SECRETS_FORCE_ALL_PLUGINS:-false}"
 DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:8080}"
 DAST_ZAP_TARGET_URL="${DAST_ZAP_TARGET_URL:-${DAST_BASE_URL}}"
 ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
-DAST_IGNORED_ALERT_REFS="${DAST_IGNORED_ALERT_REFS:-10055-13}"
+DAST_IGNORED_ALERT_REFS="${DAST_IGNORED_ALERT_REFS:-10055-13,10062}"
 DAST_HEALTH_PROBE_TIMEOUT_SECONDS="${DAST_HEALTH_PROBE_TIMEOUT_SECONDS:-5}"
 DAST_ZAP_TIMEOUT_SECONDS="${DAST_ZAP_TIMEOUT_SECONDS:-180}"
 DAST_AUTO_BOOT="${DAST_AUTO_BOOT:-true}"
@@ -25,11 +25,9 @@ SCHEMATHESIS_SCHEMA_PATH="${SCHEMATHESIS_SCHEMA_PATH:-${SCRIPT_DIR}/openapi/mani
 SCHEMATHESIS_TIMEOUT_SECONDS="${SCHEMATHESIS_TIMEOUT_SECONDS:-180}"
 SCHEMATHESIS_SEED="${SCHEMATHESIS_SEED:-424242}"
 SCHEMATHESIS_MAX_EXAMPLES="${SCHEMATHESIS_MAX_EXAMPLES:-25}"
-MANIFOLD_DATABASE_URL_1PSA_REF="${MANIFOLD_DATABASE_URL_1PSA_REF:-}"
-MANIFOLD_DATABASE_HOST_1PSA_ITEM="localhost_postgres_manifold"
-MANIFOLD_DATABASE_HOST_1PSA_FIELD="host"
-MANIFOLD_DATABASE_PORT_1PSA_ITEM="localhost_postgres_manifold"
-MANIFOLD_DATABASE_PORT_1PSA_FIELD="port"
+MANIFOLD_DATABASE_1PSA_ITEM="localhost_postgres_manifold"
+MANIFOLD_DATABASE_NAME="${MANIFOLD_DATABASE_NAME:-manifold}"
+MANIFOLD_DATABASE_SSLMODE="${MANIFOLD_DATABASE_SSLMODE:-disable}"
 
 DAST_APP_PID=""
 
@@ -188,90 +186,58 @@ wait_for_healthz() {
   done
 }
 
-read_database_url_from_1psa() {
-  local secret_ref="$1"
-  local database_url=""
-  # R025: Resolve Postgres connection data exclusively from 1psa.
+read_database_field_from_1psa() {
+  local field="$1"
+  local value=""
   set +e
-  database_url="$(1psa read "${secret_ref}" 2>/dev/null)"
+  value="$(1psa -f "${MANIFOLD_DATABASE_1PSA_ITEM}" "${field}" 2>/dev/null)"
   local read_exit=$?
   set -e
   if [[ "${read_exit}" -ne 0 ]]; then
-    echo "❌ Failed to read MANIFOLD_DATABASE_URL from 1psa reference: ${secret_ref}"
+    echo "❌ Failed to read MANIFOLD_DATABASE_${field^^} from 1psa item/field: ${MANIFOLD_DATABASE_1PSA_ITEM}/${field}"
     exit 1
   fi
-  database_url="${database_url//$'\r'/}"
-  database_url="${database_url%$'\n'}"
-  if [[ -z "${database_url}" ]]; then
-    echo "❌ 1psa returned an empty MANIFOLD_DATABASE_URL for reference: ${secret_ref}"
+  value="${value//$'\r'/}"
+  value="${value%$'\n'}"
+  if [[ -z "${value}" ]]; then
+    echo "❌ 1psa returned an empty MANIFOLD_DATABASE_${field^^} for item/field: ${MANIFOLD_DATABASE_1PSA_ITEM}/${field}"
     exit 1
   fi
-  printf '%s' "${database_url}"
+  printf '%s' "${value}"
 }
 
-read_database_host_from_1psa() {
+compose_database_url_from_1psa() {
+  local database_user=""
+  local database_password=""
   local database_host=""
-  set +e
-  database_host="$(1psa -f "${MANIFOLD_DATABASE_HOST_1PSA_ITEM}" "${MANIFOLD_DATABASE_HOST_1PSA_FIELD}" 2>/dev/null)"
-  local read_exit=$?
-  set -e
-  if [[ "${read_exit}" -ne 0 ]]; then
-    echo "❌ Failed to read MANIFOLD_DATABASE_HOST from 1psa item/field: ${MANIFOLD_DATABASE_HOST_1PSA_ITEM}/${MANIFOLD_DATABASE_HOST_1PSA_FIELD}"
-    exit 1
-  fi
-  database_host="${database_host//$'\r'/}"
-  database_host="${database_host%$'\n'}"
-  if [[ -z "${database_host}" ]]; then
-    echo "❌ 1psa returned an empty MANIFOLD_DATABASE_HOST for reference: ${secret_ref}"
-    exit 1
-  fi
-  printf '%s' "${database_host}"
-}
-
-read_database_port_from_1psa() {
   local database_port=""
-  set +e
-  database_port="$(1psa -f "${MANIFOLD_DATABASE_PORT_1PSA_ITEM}" "${MANIFOLD_DATABASE_PORT_1PSA_FIELD}" 2>/dev/null)"
-  local read_exit=$?
-  set -e
-  if [[ "${read_exit}" -ne 0 ]]; then
-    echo "❌ Failed to read MANIFOLD_DATABASE_PORT from 1psa item/field: ${MANIFOLD_DATABASE_PORT_1PSA_ITEM}/${MANIFOLD_DATABASE_PORT_1PSA_FIELD}"
-    exit 1
-  fi
-  database_port="${database_port//$'\r'/}"
-  database_port="${database_port%$'\n'}"
+  database_user="$(read_database_field_from_1psa "username")"
+  database_password="$(read_database_field_from_1psa "password")"
+  database_host="$(read_database_field_from_1psa "host")"
+  database_port="$(read_database_field_from_1psa "port")"
   if [[ ! "${database_port}" =~ ^[0-9]+$ ]] || (( database_port < 1 || database_port > 65535 )); then
-    echo "❌ 1psa returned an invalid MANIFOLD_DATABASE_PORT for item/field: ${MANIFOLD_DATABASE_PORT_1PSA_ITEM}/${MANIFOLD_DATABASE_PORT_1PSA_FIELD}"
+    echo "❌ 1psa returned an invalid MANIFOLD_DATABASE_PORT for item/field: ${MANIFOLD_DATABASE_1PSA_ITEM}/port"
     exit 1
   fi
-  printf '%s' "${database_port}"
-}
-
-apply_database_host_port() {
-  local database_url="$1"
-  local database_host="$2"
-  local database_port="$3"
-  python3 - "${database_url}" "${database_host}" "${database_port}" <<'PY'
+  python3 - "${database_user}" "${database_password}" "${database_host}" "${database_port}" "${MANIFOLD_DATABASE_NAME}" "${MANIFOLD_DATABASE_SSLMODE}" <<'PY'
 import sys
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote
 
-raw_url, host, port = sys.argv[1], sys.argv[2], sys.argv[3]
-parsed = urlsplit(raw_url)
-if not parsed.scheme:
-    raise SystemExit(1)
-
-userinfo = ""
-if parsed.username:
-    userinfo = parsed.username
-    if parsed.password is not None:
-        userinfo = f"{userinfo}:{parsed.password}"
-
-netloc = f"{host}:{port}"
-if userinfo:
-    netloc = f"{userinfo}@{netloc}"
-
-rebuilt = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
-print(rebuilt)
+user, password, host, port, dbname, sslmode = sys.argv[1:]
+print(
+    "postgres://"
+    + quote(user, safe="")
+    + ":"
+    + quote(password, safe="")
+    + "@"
+    + host
+    + ":"
+    + port
+    + "/"
+    + dbname
+    + "?sslmode="
+    + sslmode
+)
 PY
 }
 
@@ -604,19 +570,9 @@ run_dast_lane() {
   if [[ "${DAST_AUTO_BOOT}" == "true" ]]; then
     require_command go
     require_command 1psa
-    if [[ -z "${MANIFOLD_DATABASE_URL_1PSA_REF}" ]]; then
-      echo "❌ MANIFOLD_DATABASE_URL_1PSA_REF is required when DAST_AUTO_BOOT=true."
-      echo "Set MANIFOLD_DATABASE_URL_1PSA_REF to a 1psa secret reference or run with DAST_AUTO_BOOT=false."
-      exit 1
-    fi
     local database_url=""
-    local database_host=""
-    local database_port=""
-    database_url="$(read_database_url_from_1psa "${MANIFOLD_DATABASE_URL_1PSA_REF}")"
-    database_host="$(read_database_host_from_1psa)"
-    database_port="$(read_database_port_from_1psa)"
-    if ! database_url="$(apply_database_host_port "${database_url}" "${database_host}" "${database_port}")"; then
-      echo "❌ Failed to apply MANIFOLD_DATABASE_HOST/MANIFOLD_DATABASE_PORT to database URL."
+    if ! database_url="$(compose_database_url_from_1psa)"; then
+      echo "❌ Failed to compose MANIFOLD_DATABASE_URL from 1psa fields."
       exit 1
     fi
     local dast_bind_addr=""

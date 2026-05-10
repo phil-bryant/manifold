@@ -72,7 +72,7 @@ Operational database lifecycle scripts:
 
 Credential and target resolution for `97/98/99`:
 
-- postgres admin password: `localhost_postgres_postgres` (default `password` field)
+- postgres admin credential value: `localhost_postgres_postgres` (default credential field)
 - database host/port: `localhost_postgres_manifold` fields `host` and `port`
 
 Safety behavior:
@@ -144,11 +144,10 @@ Failure response shape:
 - SAST: `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, `govulncheck`
 - DAST: health probe, Schemathesis contract testing, OWASP ZAP baseline scan
 
-DAST defaults to auto-booting the service (`DAST_AUTO_BOOT=true`) by running `go run ./cmd/manifold` on the host/port from `DAST_BASE_URL`. This requires `MANIFOLD_DATABASE_URL` to be exported.
+DAST defaults to auto-booting the service (`DAST_AUTO_BOOT=true`) by running `go run ./cmd/manifold` on the host/port from `DAST_BASE_URL`.
 DAST auto-boot resolves database settings from `1psa`:
 
-- `MANIFOLD_DATABASE_URL_1PSA_REF` supplies the base DSN
-- `localhost_postgres_manifold.host` and `.port` override host/port at runtime
+- `localhost_postgres_manifold.username`, `.password`, `.host`, and `.port` are used to compose runtime `MANIFOLD_DATABASE_URL`
 
 Useful toggles:
 

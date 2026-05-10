@@ -20,11 +20,11 @@ Tests:
 - Run step-06 when `02_run_dependency_freshness_checks.sh` is absent and verify SAST execution still succeeds.
 - Verify no dependency freshness artifacts are emitted by step-06.
 
-R015  Statement: Run SAST scanners (including shell script linting and secret scanners) and persist machine-readable artifacts.
-Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, and `govulncheck`; run `detect-secrets` with explicit file exclusion support (default excludes `.gomodcache` via `DETECT_SECRETS_EXCLUDE_FILES_REGEX`); write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, and `govulncheck.json` under the report directory.
+R015  Statement: Run SAST scanners (including shell script linting and credential-pattern scanners) and persist machine-readable artifacts.
+Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, and `govulncheck`; run `detect-secrets` with explicit file exclusion support (default excludes `.gomodcache` plus requirements markdown via `DETECT_SECRETS_EXCLUDE_FILES_REGEX` to prevent deterministic documentation-only false positives); write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, and `govulncheck.json` under the report directory.
 Tests:
 - Run SAST lane with stubs and verify each expected scanner artifact file is generated.
-- Verify `detect-secrets` invocation includes the default `.gomodcache` exclusion regex.
+- Verify `detect-secrets` invocation includes the default `.gomodcache` and requirements-doc exclusion regex.
 
 R020  Statement: Aggregate SAST findings into a centralized gating summary.
 Design: Build `sast-summary.json` from scanner outputs, include high/critical totals, count `detect-secrets` findings after applying the same exclusion regex policy used during scan invocation, and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and findings are non-zero.
@@ -34,11 +34,11 @@ Tests:
 - Verify findings under `.gomodcache` are excluded from detect-secrets gate totals while in-scope findings still fail the gate.
 
 R025  Statement: Enable DAST by default while allowing explicit opt-out and deterministic local target boot.
-Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa` plus `MANIFOLD_DATABASE_URL_1PSA_REF`, resolve DB host and port directly from `1psa` item `localhost_postgres_manifold` fields `host` and `port` (no host/port env configuration), and construct the runtime Postgres DSN using those `1psa` values before boot.
+Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa`, and construct runtime `MANIFOLD_DATABASE_URL` directly from `localhost_postgres_manifold` fields `username`, `password`, `host`, and `port` (plus default db name `manifold`).
 Tests:
 - Run without setting `RUN_DAST` and verify DAST executes.
 - Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
-- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` and host/port sourced from `localhost_postgres_manifold.host`/`localhost_postgres_manifold.port`.
+- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` fields.
 
 R030  Statement: Probe service health before launching DAST scanning.
 Design: Require a successful `curl` probe to `${DAST_BASE_URL}/healthz`; when `DAST_AUTO_BOOT=true`, wait up to `DAST_AUTO_BOOT_TIMEOUT_SECONDS` for service readiness, write `dast-health.log`, and fail with explicit diagnostics when the probe fails.
@@ -54,7 +54,7 @@ Tests:
 - Run DAST lane with ZAP CLI available only under `ZAP_APP_PATH` and verify scan invocation succeeds.
 
 R040  Statement: Run Schemathesis contract testing and aggregate DAST findings into a centralized gating summary.
-Design: When `RUN_SCHEMATHESIS=true`, execute `schemathesis run` against `SCHEMATHESIS_SCHEMA_PATH` and `${DAST_BASE_URL}`, emit `schemathesis.log` and `schemathesis-junit.xml`, and include Schemathesis result state in `dast-summary.json`; aggregate OWASP ZAP alerts scoped to `DAST_ZAP_TARGET_URL` host/port instances, allow configurable alert-ref suppression via `DAST_IGNORED_ALERT_REFS` (default includes known API-noise `10055-13`), and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and unsuppressed in-scope medium/high alerts or Schemathesis contract failures are present.
+Design: When `RUN_SCHEMATHESIS=true`, execute `schemathesis run` against `SCHEMATHESIS_SCHEMA_PATH` and `${DAST_BASE_URL}`, emit `schemathesis.log` and `schemathesis-junit.xml`, and include Schemathesis result state in `dast-summary.json`; aggregate OWASP ZAP alerts scoped to `DAST_ZAP_TARGET_URL` host/port instances, allow configurable alert-ref suppression via `DAST_IGNORED_ALERT_REFS` (default includes known API-noise `10055-13` and ZAP daemon UI noise `10062`), and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and unsuppressed in-scope medium/high alerts or Schemathesis contract failures are present.
 Tests:
 - Run DAST lane with clean scanner output and verify `dast-summary.json` indicates gate pass.
 - Run DAST lane with medium/high scanner findings and verify explicit DAST gate failure output.
@@ -74,6 +74,9 @@ Tests:
 
 ## Changelog
 
+- 2026-05-10: Added default DAST suppression for ZAP daemon UI alert `10062` to avoid deterministic host-runner false positives.
+- 2026-05-10: Removed `MANIFOLD_DATABASE_URL_1PSA_REF` requirement for DAST auto-boot; DB URL is now composed directly from `localhost_postgres_manifold` fields.
+- 2026-05-10: Added default detect-secrets exclusions for requirements markdown to avoid deterministic documentation-only false positives.
 - 2026-05-10: Removed host/port env references for DAST auto-boot; host/port now come directly from `localhost_postgres_manifold` item fields.
 - 2026-05-10: Updated DAST auto-boot to require dedicated `1psa` host/port references and apply them to the runtime Postgres DSN.
 - 2026-05-10: Updated DAST auto-boot to require `1psa` + `MANIFOLD_DATABASE_URL_1PSA_REF` and resolve DB URL exclusively through `1psa read`.

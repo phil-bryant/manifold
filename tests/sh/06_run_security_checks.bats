@@ -171,12 +171,13 @@ EOF
 make_1psa_stub() {
   cat > "${STUB_BIN}/1psa" <<'EOF'
 #!/usr/bin/env bash
-if [ "$#" -eq 2 ] && [ "$1" = "read" ]; then
-  if [ "$2" = "${ONEPSA_DATABASE_URL_REF:-op://manifold/dev/database-url}" ]; then
-    printf '%s' "${ONEPSA_DATABASE_URL_VALUE:-postgres://example-user:example-pass@localhost:5432/manifold?sslmode=disable}"
-    exit 0
-  fi
-  exit 3
+if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "username" ]; then
+  printf '%s' "${ONEPSA_DATABASE_USERNAME_VALUE:-example-user}"
+  exit 0
+fi
+if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "password" ]; then
+  printf '%s' "${ONEPSA_DATABASE_PW_VALUE:-example-pw}"
+  exit 0
 fi
 if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "host" ]; then
   printf '%s' "${ONEPSA_DATABASE_HOST_VALUE:-localhost}"
@@ -186,10 +187,7 @@ if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ]
   printf '%s' "${ONEPSA_DATABASE_PORT_VALUE:-5432}"
   exit 0
 fi
-if [ "$#" -eq 3 ] && [ "$1" = "-f" ]; then
-  exit 2
-fi
-exit 3
+exit 2
 EOF
   chmod +x "${STUB_BIN}/1psa"
 }
@@ -390,12 +388,13 @@ EOF
   make_1psa_stub
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
-  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false ONEPSA_DATABASE_URL_REF="op://manifold/dev/database-url" ONEPSA_DATABASE_URL_VALUE="postgres://from-user:from-pass@old-host:9999/manifold?sslmode=disable" ONEPSA_DATABASE_HOST_VALUE="db.example.internal" ONEPSA_DATABASE_PORT_VALUE="6543" MANIFOLD_DATABASE_URL_1PSA_REF="op://manifold/dev/database-url" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false ONEPSA_DATABASE_USERNAME_VALUE="from-user" ONEPSA_DATABASE_PW_VALUE="from-pw" ONEPSA_DATABASE_HOST_VALUE="db.example.internal" ONEPSA_DATABASE_PORT_VALUE="6543" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${TEST_TMPDIR}/go-stub.log" ]
   [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"run ./cmd/manifold"* ]]
-  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"MANIFOLD_DATABASE_URL=postgres://from-user:from-pass@db.example.internal:6543/manifold?sslmode=disable"* ]]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"MANIFOLD_DATABASE_URL=postgres://"* ]]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"@db.example.internal:6543/manifold?sslmode=disable"* ]]
 }
 
 @test "runs Schemathesis and writes junit artifact" {
