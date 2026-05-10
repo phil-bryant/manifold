@@ -2,6 +2,16 @@
 
 Manifold is a batch ingest service for structured Fountain events.
 
+## OpenAPI Contract-First Workflow
+
+The v1 API contract lives at `openapi/manifold.v1.yaml` and generated server bindings live at `internal/apiv1gen/openapi.gen.go`.
+
+Regenerate server bindings after contract changes:
+
+```bash
+./openapi/generate.sh
+```
+
 ## Prerequisites
 
 - Go 1.24+
@@ -108,6 +118,22 @@ Failure response shape:
 
 - `GET /healthz`: process liveness and always `200` while process is alive
 - `GET /readyz`: checks database reachability and returns `503` when storage is unavailable
+
+## Security Checks
+
+`06_run_security_checks.sh` runs both SAST and DAST lanes:
+
+- SAST: `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, `govulncheck`
+- DAST: health probe, Schemathesis contract testing, OWASP ZAP baseline scan
+
+DAST defaults to auto-booting the service (`DAST_AUTO_BOOT=true`) by running `go run ./cmd/manifold` on the host/port from `DAST_BASE_URL`. This requires `MANIFOLD_DATABASE_URL` to be exported.
+
+Useful toggles:
+
+- `RUN_SAST=false` to skip SAST
+- `RUN_DAST=false` to skip DAST
+- `DAST_AUTO_BOOT=false` to target an already-running service
+- `RUN_SCHEMATHESIS=false` to skip Schemathesis
 
 ## Status And Error Code Notes
 

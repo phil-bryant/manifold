@@ -38,14 +38,15 @@ Tests:
 - Run without `golangci-lint` and verify installer attempts `brew install golangci-lint`.
 
 R030  Statement: Ensure SAST/security tooling required by this repository is available.
-Design: Verify/install `shellcheck`, `semgrep`, `gitleaks`, `gosec`, `govulncheck`, and `clamscan` (via Homebrew `clamav`) before completion so SAST and AV lanes are runnable.
+Design: Verify/install `shellcheck`, `semgrep`, `gitleaks`, `detect-secrets`, `gosec`, `govulncheck`, and `clamscan` (via Homebrew `clamav`) before completion so SAST and AV lanes are runnable.
 Tests:
 - Run installer without those tools and verify each required formula install is attempted.
 - Rerun installer and verify already-installed tools are not reinstalled.
 
 R055  Statement: Ensure DAST runtime tooling is available before completing prerequisites.
-Design: Accept `zap-baseline.py` from PATH, or discover ZAP CLI (`ZAP.sh`/`zap.sh`) under PATH or `ZAP_APP_PATH` (`/Applications/ZAP.app` by default); when missing, install Homebrew cask `zap` and re-verify command discovery.
+Design: Verify/install `schemathesis`, then accept `zap-baseline.py` from PATH, or discover ZAP CLI (`ZAP.sh`/`zap.sh`) under PATH or `ZAP_APP_PATH` (`/Applications/ZAP.app` by default); when missing, install Homebrew cask `zap` and re-verify command discovery.
 Tests:
+- Run installer without `schemathesis` and verify `brew install schemathesis` is attempted.
 - Run installer without `zap-baseline.py`/`ZAP.sh` and verify `brew install --cask zap` is attempted.
 - Run installer with `zap-baseline.py` or `ZAP.sh` available and verify cask install is skipped.
 
@@ -71,6 +72,7 @@ Tests:
 
 ## Changelog
 
+- 2026-05-10: Added `detect-secrets` and `schemathesis` to prerequisite tooling coverage.
 - 2026-05-10: Added explicit DAST runtime prerequisite coverage (`zap-baseline.py`).
 - 2026-05-10: Switched DAST prerequisite installation to Homebrew cask `zap` with `ZAP_APP_PATH` discovery.
 - 2026-05-09: Added ClamAV (`clamav`/`clamscan`) to prerequisite security tooling requirements.

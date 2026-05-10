@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"manifold/ingest"
 )
 
 type fakeReadinessStore struct {
@@ -17,12 +19,18 @@ func (s fakeReadinessStore) Ping(_ context.Context) error {
 	return s.err
 }
 
+type fakeIngestService struct{}
+
+func (fakeIngestService) ProcessBatch(_ context.Context, _ string, _ ingest.BatchRequest, _ []byte) (int, ingest.APIResponse, []any) {
+	return http.StatusOK, ingest.APIResponse{Accepted: true}, nil
+}
+
 func TestHealthzAlwaysOK(t *testing.T) {
 	// #R001: Operational routes are registered and health endpoint responds.
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
-		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+		fakeIngestService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		0,
 	)
@@ -39,7 +47,7 @@ func TestReadyzReflectsDBState(t *testing.T) {
 	server := NewServer(
 		":0",
 		fakeReadinessStore{err: context.DeadlineExceeded},
-		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+		fakeIngestService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		0,
 	)
@@ -56,10 +64,7 @@ func TestRequestIDPropagation(t *testing.T) {
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-			_ = r.Header.Get("X-Request-ID")
-		}),
+		fakeIngestService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		0,
 	)
@@ -77,7 +82,7 @@ func TestRateLimitReturns429(t *testing.T) {
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }),
+		fakeIngestService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		1,
 	)
@@ -95,7 +100,7 @@ func TestServerSetsReadHeaderTimeout(t *testing.T) {
 	server := NewServer(
 		":0",
 		fakeReadinessStore{},
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }),
+		fakeIngestService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		0,
 	)

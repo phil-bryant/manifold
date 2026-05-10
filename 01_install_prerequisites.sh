@@ -121,6 +121,7 @@ ensure_sast_tools() {
     ensure_brew_formula "shellcheck" "shellcheck"
     ensure_brew_formula "semgrep" "semgrep"
     ensure_brew_formula "gitleaks" "gitleaks"
+    ensure_brew_formula "detect-secrets" "detect-secrets"
     ensure_brew_formula "gosec" "gosec"
     ensure_brew_formula "govulncheck" "govulncheck"
     ensure_brew_formula "clamav" "clamscan"
@@ -128,6 +129,7 @@ ensure_sast_tools() {
 
 ensure_dast_tools() {
     #R055: Ensure DAST runtime tooling is available for step-06.
+    ensure_brew_formula "schemathesis" "schemathesis"
     local zap_baseline_path=""
     local zap_cli_path=""
     echo "[OWASP ZAP] Checking..."

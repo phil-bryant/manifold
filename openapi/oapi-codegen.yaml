@@ -1,0 +1,6 @@
+package: apiv1gen
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+output: ../internal/apiv1gen/openapi.gen.go
