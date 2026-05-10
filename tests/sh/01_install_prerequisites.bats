@@ -7,6 +7,7 @@ setup() {
   export TMP_ROOT
   TMP_ROOT="$(mktemp -d)"
   export STUB_BIN="${TMP_ROOT}/bin"
+  export ZAP_APP_PATH="${TMP_ROOT}/Applications/ZAP.app"
   mkdir -p "${STUB_BIN}"
 }
 
@@ -23,8 +24,22 @@ if [ "$1" = "--prefix" ] && [ "$2" = "libpq" ]; then
   echo "${STUB_BIN}/opt/libpq"
   exit 0
 fi
+if [ "$1" = "install" ] && [ "$2" = "--cask" ] && [ "$3" = "zap" ]; then
+  printf "install --cask zap\n" >> "${BREW_LOG}"
+  mkdir -p "${ZAP_APP_PATH}/Contents/MacOS"
+  cat > "${ZAP_APP_PATH}/Contents/MacOS/ZAP.sh" <<'INNER'
+#!/bin/bash
+exit 0
+INNER
+  chmod +x "${ZAP_APP_PATH}/Contents/MacOS/ZAP.sh"
+  exit 0
+fi
 if [ "$1" = "install" ]; then
   FORMULA="$2"
+  COMMAND_NAME="${FORMULA}"
+  if [ "${FORMULA}" = "clamav" ]; then
+    COMMAND_NAME="clamscan"
+  fi
   printf "install %s\n" "${FORMULA}" >> "${BREW_LOG}"
   if [ "${FORMULA}" = "libpq" ]; then
     mkdir -p "${STUB_BIN}/opt/libpq/bin"
@@ -35,11 +50,11 @@ INNER
     chmod +x "${STUB_BIN}/opt/libpq/bin/psql"
     exit 0
   fi
-  cat > "${STUB_BIN}/${FORMULA}" <<'INNER'
+  cat > "${STUB_BIN}/${COMMAND_NAME}" <<'INNER'
 #!/bin/bash
 exit 0
 INNER
-  chmod +x "${STUB_BIN}/${FORMULA}"
+  chmod +x "${STUB_BIN}/${COMMAND_NAME}"
   exit 0
 fi
 exit 0
@@ -61,8 +76,8 @@ EOF
   [[ "${output}" == *"install.sh"* ]]
 }
 
-@test "R010,R025,R030: installs Go and tooling formulas when missing" {
-  #R010 #R025 #R030
+@test "R010,R025,R030,R055: installs Go, security, and DAST host tooling when missing" {
+  #R010 #R025 #R030 #R055
   create_brew_stub
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/bin/bash
@@ -73,7 +88,7 @@ fi
 exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" /bin/bash "${SCRIPT_PATH}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
   [ "$status" -eq 0 ]
   run rg "^install libpq$" "${TMP_ROOT}/brew.log"
   [ "$status" -eq 0 ]
@@ -89,6 +104,10 @@ EOF
   [ "$status" -eq 0 ]
   run rg "^install govulncheck$" "${TMP_ROOT}/brew.log"
   [ "$status" -eq 0 ]
+  run rg "^install clamav$" "${TMP_ROOT}/brew.log"
+  [ "$status" -eq 0 ]
+  run rg "^install --cask zap$" "${TMP_ROOT}/brew.log"
+  [ "$status" -eq 0 ]
 }
 
 @test "R015: fails when Go version is below minimum" {
@@ -103,7 +122,7 @@ fi
 exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" /bin/bash "${SCRIPT_PATH}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
   [ "$status" -ne 0 ]
   [[ "${output}" == *"below required"* ]]
 }
@@ -163,7 +182,7 @@ fi
 exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" STUB_BIN="${STUB_BIN}" BREW_LOG="${TMP_ROOT}/brew.log" /bin/bash "${SCRIPT_PATH}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" STUB_BIN="${STUB_BIN}" BREW_LOG="${TMP_ROOT}/brew.log" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
   [ "$status" -ne 0 ]
   [[ "${output}" == *"psql still unavailable"* ]]
 }
@@ -181,10 +200,10 @@ exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
 
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" /bin/bash "${SCRIPT_PATH}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
   [ "$status" -eq 0 ]
 
-  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" /bin/bash "${SCRIPT_PATH}"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
   [ "$status" -eq 0 ]
 
   run rg "^install libpq$" "${TMP_ROOT}/brew.log" --count
@@ -208,4 +227,35 @@ EOF
   run rg "^install govulncheck$" "${TMP_ROOT}/brew.log" --count
   [ "$status" -eq 0 ]
   [ "${output}" = "1" ]
+  run rg "^install clamav$" "${TMP_ROOT}/brew.log" --count
+  [ "$status" -eq 0 ]
+  [ "${output}" = "1" ]
+  run rg "^install --cask zap$" "${TMP_ROOT}/brew.log" --count
+  [ "$status" -eq 0 ]
+  [ "${output}" = "1" ]
+}
+
+@test "R055: skips zap cask install when ZAP runtime is already available" {
+  #R055
+  create_brew_stub
+  cat > "${STUB_BIN}/go" <<'EOF'
+#!/bin/bash
+if [ "$1" = "version" ]; then
+  echo "go version go1.22.9 darwin/arm64"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/go"
+  cat > "${STUB_BIN}/zap-baseline.py" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/zap-baseline.py"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
+  [ "$status" -eq 0 ]
+  if [ -f "${TMP_ROOT}/brew.log" ]; then
+    run rg "^install --cask zap$" "${TMP_ROOT}/brew.log"
+    [ "$status" -ne 0 ]
+  fi
 }

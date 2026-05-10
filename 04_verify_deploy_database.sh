@@ -1,6 +1,6 @@
-#!/usr/bin/env zsh
+#!/bin/sh
 #R001: Enforce strict fail-fast execution semantics.
-set -euo pipefail
+set -eu
 
 #R005: Resolve manifold credential from dedicated 1psa item.
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
@@ -16,9 +16,9 @@ if ! command -v 1psa >/dev/null; then
 fi
 
 read_1psa_secret() {
-  local item="$1"
-  local field="$2"
-  if [[ "$field" == "password" ]]; then
+  item="$1"
+  field="$2"
+  if [ "$field" = "password" ]; then
     1psa -p "$item"
   else
     1psa -f "$item" "$field"
@@ -26,7 +26,7 @@ read_1psa_secret() {
 }
 
 DB_PASSWORD="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "$MANIFOLD_PSA_FIELD")"
-if [[ -z "$DB_PASSWORD" ]]; then
+if [ -z "$DB_PASSWORD" ]; then
   echo "❌ FAIL: Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
@@ -48,9 +48,18 @@ db_scalar() {
   db_lines "$1"
 }
 
-failures=()
+FAILURES=""
 record_failure() {
-  failures+=("$1")
+  if [ -n "$FAILURES" ]; then
+    FAILURES="${FAILURES}
+$1"
+  else
+    FAILURES="$1"
+  fi
+}
+
+comma_join_lines() {
+  printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
 }
 
 echo "🔎 Verifying manifold database schema on ${DB_HOST}:${DB_PORT}/${DB_NAME} as ${DB_USER}..."
@@ -72,8 +81,8 @@ missing_tables="$(
     ORDER BY expected.table_name;
   "
 )"
-if [[ -n "$missing_tables" ]]; then
-  record_failure "missing tables: ${missing_tables//$'\n'/, }"
+if [ -n "$missing_tables" ]; then
+  record_failure "missing tables: $(comma_join_lines "$missing_tables")"
 else
   echo "  ✓ tables present: ingest_batches, ingest_events"
 fi
@@ -99,15 +108,15 @@ missing_indexes="$(
     ORDER BY expected.index_name;
   "
 )"
-if [[ -n "$missing_indexes" ]]; then
-  record_failure "missing indexes: ${missing_indexes//$'\n'/, }"
+if [ -n "$missing_indexes" ]; then
+  record_failure "missing indexes: $(comma_join_lines "$missing_indexes")"
 else
   echo "  ✓ indexes present: timestamp, event_name, component, install_id"
 fi
 
 #R025: Verify ingest_events.batch_id FK references ingest_batches.batch_id.
 echo "- checking foreign key relationship..."
-if [[ "$(db_scalar "
+if [ "$(db_scalar "
   SELECT EXISTS (
     SELECT 1
     FROM pg_constraint con
@@ -125,18 +134,22 @@ if [[ "$(db_scalar "
       AND parent_ns.nspname = 'public'
       AND parent_rel.relname = 'ingest_batches'
   );
-")" != "t" ]]; then
+")" != "t" ]; then
   record_failure "missing FK: ingest_events(batch_id) -> ingest_batches(batch_id)"
 else
   echo "  ✓ FK present: ingest_events(batch_id) -> ingest_batches(batch_id)"
 fi
 
 #R030: Print explicit pass/fail verification result.
-if (( ${#failures[@]} > 0 )); then
+if [ -n "$FAILURES" ]; then
   echo "❌ FAIL: Manifold database verification failed."
-  for failure in "${failures[@]}"; do
-    echo "- ${failure}"
+  old_ifs="$IFS"
+  IFS='
+'
+  for failure in $FAILURES; do
+    echo "- $failure"
   done
+  IFS="$old_ifs"
   exit 1
 fi
 echo "✅ PASS: Manifold database schema objects verified."
