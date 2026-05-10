@@ -43,6 +43,12 @@ if ! command -v go >/dev/null; then
   exit 1
 fi
 
+#R010: Refuse unit tests when bats is unavailable.
+if ! command -v bats >/dev/null; then
+  echo "bats is required but was not found on PATH."
+  exit 1
+fi
+
 #R015: Resolve SQL test file path from script directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SQL_TEST_FILE="${SCRIPT_DIR}/storage/sql/unit/ingest_schema_pgtap.sql"
@@ -67,6 +73,9 @@ if ! go test ./... | tee "$GO_TEST_OUTPUT_FILE"; then
   exit 1
 fi
 
+#R030: Run Bats shell tests only after Go unit tests pass.
+bats "${SCRIPT_DIR}/tests/sh"
+
 #R032: Fail when any Go package reports no associated unit-test files.
 NO_TEST_PACKAGES_FILE="$(mktemp)"
 awk '$0 ~ /\[no test files\]/ { print $2 }' "$GO_TEST_OUTPUT_FILE" | sort -u > "$NO_TEST_PACKAGES_FILE"
@@ -77,4 +86,4 @@ if [ -s "$NO_TEST_PACKAGES_FILE" ]; then
 fi
 
 #R035: Emit concise operator-readable success output.
-echo "✅ PASS: SQL and Go unit tests completed."
+echo "✅ PASS: SQL, Go, and Bats unit tests completed."

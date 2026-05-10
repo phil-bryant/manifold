@@ -31,11 +31,17 @@ if [ "${1:-}" = "-p" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-f" ]; then
-  case "${2:-}" in
-    localhost_postgres_postgres)
+  case "${2:-}:${3:-}" in
+    localhost_postgres_manifold:host)
+      printf '%s\n' "${ONEPSA_MANIFOLD_HOST-localhost}"
+      ;;
+    localhost_postgres_manifold:port)
+      printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
+      ;;
+    localhost_postgres_postgres:password)
       printf '%s\n' "${POSTGRES_PASSWORD-postgres-password}"
       ;;
-    localhost_postgres_manifold)
+    localhost_postgres_manifold:password)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
       ;;
     *)
@@ -91,6 +97,17 @@ setup() {
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
 
+@test "fails when manifold 1psa host/port lookup is empty or invalid" {
+  #R005
+  run env ONEPSA_MANIFOLD_HOST= bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold host from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_PORT=invalid bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold port from 1psa item"* ]]
+}
+
 @test "fails when psql is unavailable" {
   #R010
   rm -f "${STUB_BIN}/psql"
@@ -118,11 +135,11 @@ setup() {
 
 @test "applies schema using fail-fast psql flags and 1psa credentials" {
   #R025
-  run bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -eq 0 ]
   grep -F -- "-U postgres" "${CALLS_LOG}"
-  grep -F -- "-h localhost" "${CALLS_LOG}"
-  grep -F -- "-p 5432" "${CALLS_LOG}"
+  grep -F -- "-h db.internal" "${CALLS_LOG}"
+  grep -F -- "-p 6543" "${CALLS_LOG}"
   grep -F -- "-U manifold" "${CALLS_LOG}"
   grep -F -- "-d manifold" "${CALLS_LOG}"
   grep -F "ON_ERROR_STOP=1" "${CALLS_LOG}"

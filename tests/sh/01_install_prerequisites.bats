@@ -62,6 +62,14 @@ EOF
   chmod +x "${STUB_BIN}/brew"
 }
 
+create_1psa_stub() {
+  cat > "${STUB_BIN}/1psa" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/1psa"
+}
+
 @test "R001: script uses strict fail-fast mode" {
   #R001
   run rg "set -euo pipefail" "${SCRIPT_PATH}"
@@ -79,6 +87,7 @@ EOF
 @test "R010,R025,R030,R055: installs Go, security, and DAST host tooling when missing" {
   #R010 #R025 #R030 #R055
   create_brew_stub
+  create_1psa_stub
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/bin/bash
 if [ "$1" = "version" ]; then
@@ -127,9 +136,10 @@ EOF
   [[ "${output}" == *"below required"* ]]
 }
 
-@test "R020,R035,R045,R050: accepts libpq prefix fallback and prints Go guidance" {
-  #R020 #R035 #R045 #R050
+@test "R020,R035,R045: accepts libpq prefix fallback and prints Go guidance" {
+  #R020 #R035 #R045
   create_brew_stub
+  create_1psa_stub
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/bin/bash
 if [ "$1" = "version" ]; then
@@ -145,7 +155,6 @@ EOF
   [[ "${output}" == *"go test ./..."* ]]
   [[ "${output}" == *"go test -race ./..."* ]]
   [[ "${output}" == *"golangci-lint run"* ]]
-  [[ "${output}" == *"MANIFOLD_DATABASE_URL"* ]]
   run rg "^install libpq$" "${TMP_ROOT}/brew.log"
   [ "$status" -eq 0 ]
 }
@@ -190,6 +199,7 @@ EOF
 @test "R040: reruns are idempotent and skip redundant installs" {
   #R040
   create_brew_stub
+  create_1psa_stub
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/bin/bash
 if [ "$1" = "version" ]; then
@@ -238,6 +248,7 @@ EOF
 @test "R055: skips zap cask install when ZAP runtime is already available" {
   #R055
   create_brew_stub
+  create_1psa_stub
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/bin/bash
 if [ "$1" = "version" ]; then
@@ -258,4 +269,21 @@ EOF
     run rg "^install --cask zap$" "${TMP_ROOT}/brew.log"
     [ "$status" -ne 0 ]
   fi
+}
+
+@test "R050: fails with guidance when 1psa is missing" {
+  #R050
+  create_brew_stub
+  cat > "${STUB_BIN}/go" <<'EOF'
+#!/bin/bash
+if [ "$1" = "version" ]; then
+  echo "go version go1.22.9 darwin/arm64"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/go"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"[1psa] Missing."* ]]
 }

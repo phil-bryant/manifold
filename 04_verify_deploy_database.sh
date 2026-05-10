@@ -5,8 +5,6 @@ set -eu
 #R005: Resolve manifold credential from dedicated 1psa item.
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
 MANIFOLD_PSA_FIELD="${MANIFOLD_PSA_FIELD:-password}"
-DB_HOST="localhost"
-DB_PORT="5432"
 DB_NAME="manifold"
 DB_USER="manifold"
 
@@ -30,6 +28,18 @@ if [ -z "$DB_PASSWORD" ]; then
   echo "❌ FAIL: Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
+DB_HOST="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "host")"
+if [ -z "$DB_HOST" ]; then
+  echo "❌ FAIL: Failed to resolve manifold host from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_PORT="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "port")"
+case "$DB_PORT" in
+  ''|*[!0-9]*)
+    echo "❌ FAIL: Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
+    exit 1
+    ;;
+esac
 
 #R010: Refuse verification when psql is unavailable.
 if ! command -v psql >/dev/null; then

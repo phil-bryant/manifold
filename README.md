@@ -57,10 +57,28 @@ To provision manually:
 `03_deploy_database.sh` uses `1psa` items:
 
 - `localhost_postgres_postgres` for postgres admin password
-- `localhost_postgres_manifold` for manifold user password
+- `localhost_postgres_manifold` for manifold user password and target `host`/`port` fields
 
 `05_run_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
 Security/dependency check reports are written to `.security-reports/` and are intentionally ignored by Git.
+
+## Backup / Restore Lifecycle
+
+Operational database lifecycle scripts:
+
+- `97_backup_database.sh` writes `backups/<db>_<timestamp>.dump` plus matching `_globals.sql`
+- `98_destroy_database.sh` prompts for explicit `destroy` confirmation, then drops the target DB and role
+- `99_restore_database.sh` restores globals first, then database content from the selected dump
+
+Credential and target resolution for `97/98/99`:
+
+- postgres admin password: `localhost_postgres_postgres` (default `password` field)
+- database host/port: `localhost_postgres_manifold` fields `host` and `port`
+
+Safety behavior:
+
+- `99_restore_database.sh` refuses restore if `public.ingest_batches` already exists in the target DB
+- restore requires the matching globals file (`<dump>_globals.sql`)
 
 ## Ingest API
 
@@ -127,6 +145,10 @@ Failure response shape:
 - DAST: health probe, Schemathesis contract testing, OWASP ZAP baseline scan
 
 DAST defaults to auto-booting the service (`DAST_AUTO_BOOT=true`) by running `go run ./cmd/manifold` on the host/port from `DAST_BASE_URL`. This requires `MANIFOLD_DATABASE_URL` to be exported.
+DAST auto-boot resolves database settings from `1psa`:
+
+- `MANIFOLD_DATABASE_URL_1PSA_REF` supplies the base DSN
+- `localhost_postgres_manifold.host` and `.port` override host/port at runtime
 
 Useful toggles:
 

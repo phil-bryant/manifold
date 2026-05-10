@@ -56,8 +56,14 @@ if [ "${1:-}" = "-p" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-f" ]; then
-  case "${2:-}" in
-    localhost_postgres_manifold)
+  case "${2:-}:${3:-}" in
+    localhost_postgres_manifold:host)
+      printf '%s\n' "${ONEPSA_MANIFOLD_HOST-localhost}"
+      ;;
+    localhost_postgres_manifold:port)
+      printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
+      ;;
+    localhost_postgres_manifold:password)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
       ;;
     *)
@@ -111,6 +117,17 @@ EOF
   run env MANIFOLD_PASSWORD= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
+}
+
+@test "fails when manifold 1psa host/port lookup is empty or invalid" {
+  #R005
+  run env ONEPSA_MANIFOLD_HOST= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold host from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_PORT=bad sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold port from 1psa item"* ]]
 }
 
 @test "fails when psql is unavailable" {
@@ -167,10 +184,10 @@ EOF
   #R035
   : > "${PSQL_LOG}"
   make_psql_happy
-  run sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -eq 0 ]
-  grep -F -- "-h localhost" "${PSQL_LOG}"
-  grep -F -- "-p 5432" "${PSQL_LOG}"
+  grep -F -- "-h db.internal" "${PSQL_LOG}"
+  grep -F -- "-p 6543" "${PSQL_LOG}"
   grep -F -- "-U manifold" "${PSQL_LOG}"
   grep -F -- "-d manifold" "${PSQL_LOG}"
   grep -F "ON_ERROR_STOP=1" "${PSQL_LOG}"

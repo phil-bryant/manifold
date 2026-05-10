@@ -52,6 +52,15 @@ make_detect_secrets_stub() {
   local body="${1:-{\"results\":{}}}"
   cat > "${STUB_BIN}/detect-secrets" <<EOF
 #!/usr/bin/env bash
+if [ -n "\${DETECT_SECRETS_EXPECT_ARGS_CONTAIN:-}" ]; then
+  case " \$* " in
+    *"\${DETECT_SECRETS_EXPECT_ARGS_CONTAIN}"*) ;;
+    *)
+      echo "missing expected detect-secrets arg: \${DETECT_SECRETS_EXPECT_ARGS_CONTAIN}" >&2
+      exit 2
+      ;;
+  esac
+fi
 printf '%s' '${body}'
 exit 0
 EOF
@@ -152,10 +161,37 @@ EOF
 make_go_stub() {
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/usr/bin/env bash
-echo "$*" > "${GO_STUB_LOG_PATH}"
+printf '%s\n' "$*" > "${GO_STUB_LOG_PATH}"
+printf '%s\n' "MANIFOLD_DATABASE_URL=${MANIFOLD_DATABASE_URL:-}" >> "${GO_STUB_LOG_PATH}"
 exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
+}
+
+make_1psa_stub() {
+  cat > "${STUB_BIN}/1psa" <<'EOF'
+#!/usr/bin/env bash
+if [ "$#" -eq 2 ] && [ "$1" = "read" ]; then
+  if [ "$2" = "${ONEPSA_DATABASE_URL_REF:-op://manifold/dev/database-url}" ]; then
+    printf '%s' "${ONEPSA_DATABASE_URL_VALUE:-postgres://example-user:example-pass@localhost:5432/manifold?sslmode=disable}"
+    exit 0
+  fi
+  exit 3
+fi
+if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "host" ]; then
+  printf '%s' "${ONEPSA_DATABASE_HOST_VALUE:-localhost}"
+  exit 0
+fi
+if [ "$#" -eq 3 ] && [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port" ]; then
+  printf '%s' "${ONEPSA_DATABASE_PORT_VALUE:-5432}"
+  exit 0
+fi
+if [ "$#" -eq 3 ] && [ "$1" = "-f" ]; then
+  exit 2
+fi
+exit 3
+EOF
+  chmod +x "${STUB_BIN}/1psa"
 }
 
 setup_fixture() {
@@ -269,6 +305,70 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "invokes detect-secrets with gomodcache exclusion regex by default" {
+  #R015
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  run env RUN_DAST=false DETECT_SECRETS_EXPECT_ARGS_CONTAIN="--exclude-files (^|/)\\.gomodcache/" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "ignores detect-secrets findings under excluded paths for gate totals" {
+  #R020
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{".gomodcache/cache/download/example":[{"type":"Hex High Entropy String","line_number":1}]}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  run python3 -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8"))["detect_secrets_findings"])' "${FIXTURE_ROOT}/.security-reports/sast-summary.json"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 0 ]
+}
+
+@test "fails SAST gate on in-scope detect-secrets findings" {
+  #R020
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  mkdir -p "${FIXTURE_ROOT}/config"
+  cat > "${FIXTURE_ROOT}/config/config.go" <<'EOF'
+package config
+
+func placeholder() {
+}
+
+// filler
+// filler
+// filler
+// filler
+// filler
+// filler
+secret := "abc123"
+EOF
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{"config/config.go":[{"type":"Secret Keyword","line_number":12}]}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SAST) gate failed"* ]]
+  [[ "$output" == *"❌ Detect-secrets findings (in scope):"* ]]
+  [[ "$output" == *"❌ config/config.go:12 [Secret Keyword]"* ]]
+  [[ "$output" == *"source: secret := \"abc123\""* ]]
+  run python3 -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8"))["detect_secrets_findings"])' "${FIXTURE_ROOT}/.security-reports/sast-summary.json"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+}
+
 @test "runs DAST health probe and emits DAST artifacts by default" {
   #R025 #R030 #R035 #R040 #R050
   make_curl_stub 0
@@ -287,13 +387,15 @@ teardown() {
 @test "auto-boots service for DAST when enabled" {
   #R025
   make_go_stub
+  make_1psa_stub
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
-  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false MANIFOLD_DATABASE_URL="postgres://example" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false ONEPSA_DATABASE_URL_REF="op://manifold/dev/database-url" ONEPSA_DATABASE_URL_VALUE="postgres://from-user:from-pass@old-host:9999/manifold?sslmode=disable" ONEPSA_DATABASE_HOST_VALUE="db.example.internal" ONEPSA_DATABASE_PORT_VALUE="6543" MANIFOLD_DATABASE_URL_1PSA_REF="op://manifold/dev/database-url" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${TEST_TMPDIR}/go-stub.log" ]
   [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"run ./cmd/manifold"* ]]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"MANIFOLD_DATABASE_URL=postgres://from-user:from-pass@db.example.internal:6543/manifold?sslmode=disable"* ]]
 }
 
 @test "runs Schemathesis and writes junit artifact" {

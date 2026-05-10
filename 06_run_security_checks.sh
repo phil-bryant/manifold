@@ -10,6 +10,8 @@ REPORT_DIR="${SECURITY_REPORT_DIR:-./.security-reports}"
 RUN_SAST="${RUN_SAST:-true}"
 RUN_DAST="${RUN_DAST:-true}"
 FAIL_ON_HIGH_CRITICAL="${SECURITY_FAIL_ON_HIGH_CRITICAL:-true}"
+DETECT_SECRETS_EXCLUDE_FILES_REGEX="${DETECT_SECRETS_EXCLUDE_FILES_REGEX:-(^|/)\\.gomodcache/}"
+DETECT_SECRETS_FORCE_ALL_PLUGINS="${DETECT_SECRETS_FORCE_ALL_PLUGINS:-false}"
 DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:8080}"
 DAST_ZAP_TARGET_URL="${DAST_ZAP_TARGET_URL:-${DAST_BASE_URL}}"
 ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
@@ -23,6 +25,11 @@ SCHEMATHESIS_SCHEMA_PATH="${SCHEMATHESIS_SCHEMA_PATH:-${SCRIPT_DIR}/openapi/mani
 SCHEMATHESIS_TIMEOUT_SECONDS="${SCHEMATHESIS_TIMEOUT_SECONDS:-180}"
 SCHEMATHESIS_SEED="${SCHEMATHESIS_SEED:-424242}"
 SCHEMATHESIS_MAX_EXAMPLES="${SCHEMATHESIS_MAX_EXAMPLES:-25}"
+MANIFOLD_DATABASE_URL_1PSA_REF="${MANIFOLD_DATABASE_URL_1PSA_REF:-}"
+MANIFOLD_DATABASE_HOST_1PSA_ITEM="localhost_postgres_manifold"
+MANIFOLD_DATABASE_HOST_1PSA_FIELD="host"
+MANIFOLD_DATABASE_PORT_1PSA_ITEM="localhost_postgres_manifold"
+MANIFOLD_DATABASE_PORT_1PSA_FIELD="port"
 
 DAST_APP_PID=""
 
@@ -181,6 +188,93 @@ wait_for_healthz() {
   done
 }
 
+read_database_url_from_1psa() {
+  local secret_ref="$1"
+  local database_url=""
+  # R025: Resolve Postgres connection data exclusively from 1psa.
+  set +e
+  database_url="$(1psa read "${secret_ref}" 2>/dev/null)"
+  local read_exit=$?
+  set -e
+  if [[ "${read_exit}" -ne 0 ]]; then
+    echo "❌ Failed to read MANIFOLD_DATABASE_URL from 1psa reference: ${secret_ref}"
+    exit 1
+  fi
+  database_url="${database_url//$'\r'/}"
+  database_url="${database_url%$'\n'}"
+  if [[ -z "${database_url}" ]]; then
+    echo "❌ 1psa returned an empty MANIFOLD_DATABASE_URL for reference: ${secret_ref}"
+    exit 1
+  fi
+  printf '%s' "${database_url}"
+}
+
+read_database_host_from_1psa() {
+  local database_host=""
+  set +e
+  database_host="$(1psa -f "${MANIFOLD_DATABASE_HOST_1PSA_ITEM}" "${MANIFOLD_DATABASE_HOST_1PSA_FIELD}" 2>/dev/null)"
+  local read_exit=$?
+  set -e
+  if [[ "${read_exit}" -ne 0 ]]; then
+    echo "❌ Failed to read MANIFOLD_DATABASE_HOST from 1psa item/field: ${MANIFOLD_DATABASE_HOST_1PSA_ITEM}/${MANIFOLD_DATABASE_HOST_1PSA_FIELD}"
+    exit 1
+  fi
+  database_host="${database_host//$'\r'/}"
+  database_host="${database_host%$'\n'}"
+  if [[ -z "${database_host}" ]]; then
+    echo "❌ 1psa returned an empty MANIFOLD_DATABASE_HOST for reference: ${secret_ref}"
+    exit 1
+  fi
+  printf '%s' "${database_host}"
+}
+
+read_database_port_from_1psa() {
+  local database_port=""
+  set +e
+  database_port="$(1psa -f "${MANIFOLD_DATABASE_PORT_1PSA_ITEM}" "${MANIFOLD_DATABASE_PORT_1PSA_FIELD}" 2>/dev/null)"
+  local read_exit=$?
+  set -e
+  if [[ "${read_exit}" -ne 0 ]]; then
+    echo "❌ Failed to read MANIFOLD_DATABASE_PORT from 1psa item/field: ${MANIFOLD_DATABASE_PORT_1PSA_ITEM}/${MANIFOLD_DATABASE_PORT_1PSA_FIELD}"
+    exit 1
+  fi
+  database_port="${database_port//$'\r'/}"
+  database_port="${database_port%$'\n'}"
+  if [[ ! "${database_port}" =~ ^[0-9]+$ ]] || (( database_port < 1 || database_port > 65535 )); then
+    echo "❌ 1psa returned an invalid MANIFOLD_DATABASE_PORT for item/field: ${MANIFOLD_DATABASE_PORT_1PSA_ITEM}/${MANIFOLD_DATABASE_PORT_1PSA_FIELD}"
+    exit 1
+  fi
+  printf '%s' "${database_port}"
+}
+
+apply_database_host_port() {
+  local database_url="$1"
+  local database_host="$2"
+  local database_port="$3"
+  python3 - "${database_url}" "${database_host}" "${database_port}" <<'PY'
+import sys
+from urllib.parse import urlsplit, urlunsplit
+
+raw_url, host, port = sys.argv[1], sys.argv[2], sys.argv[3]
+parsed = urlsplit(raw_url)
+if not parsed.scheme:
+    raise SystemExit(1)
+
+userinfo = ""
+if parsed.username:
+    userinfo = parsed.username
+    if parsed.password is not None:
+        userinfo = f"{userinfo}:{parsed.password}"
+
+netloc = f"{host}:{port}"
+if userinfo:
+    netloc = f"{userinfo}@{netloc}"
+
+rebuilt = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+print(rebuilt)
+PY
+}
+
 run_sast_lane() {
   #R015: Run Go-focused SAST scanners and persist machine-readable artifacts.
   if [[ "$RUN_SAST" != "true" ]]; then
@@ -254,7 +348,82 @@ run_sast_lane() {
     "Helps catch accidentally committed credentials before release." \
     "https://github.com/Yelp/detect-secrets"
   echo "▶ Running detect-secrets"
-  detect-secrets scan --all-files --force-use-all-plugins > "${REPORT_DIR}/detect-secrets.json"
+  local -a detect_secrets_args=(
+    scan
+    --all-files
+    --exclude-files "${DETECT_SECRETS_EXCLUDE_FILES_REGEX}"
+  )
+  if [[ "${DETECT_SECRETS_FORCE_ALL_PLUGINS}" == "true" ]]; then
+    detect_secrets_args+=(--force-use-all-plugins)
+  fi
+  detect-secrets "${detect_secrets_args[@]}" > "${REPORT_DIR}/detect-secrets.json"
+  python3 - <<'PY' "${REPORT_DIR}/detect-secrets.json" "${DETECT_SECRETS_EXCLUDE_FILES_REGEX}"
+import json
+import re
+import sys
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+report_path = Path(sys.argv[1])
+exclude_pattern = sys.argv[2]
+repo_root = Path.cwd()
+exclude_regex = None
+if exclude_pattern:
+    try:
+        exclude_regex = re.compile(exclude_pattern)
+    except re.error:
+        print(f"Invalid DETECT_SECRETS_EXCLUDE_FILES_REGEX: {exclude_pattern}")
+        raise SystemExit(1)
+
+try:
+    payload = json.loads(report_path.read_text(encoding="utf-8", errors="replace"))
+except json.JSONDecodeError:
+    payload = {}
+results = payload.get("results", {}) if isinstance(payload, dict) else {}
+
+def read_source_line(filename: str, line_number: object) -> Optional[str]:
+    try:
+        line_idx = int(str(line_number))
+    except (TypeError, ValueError):
+        return None
+    if line_idx <= 0:
+        return None
+    source_path = Path(filename)
+    if not source_path.is_absolute():
+        source_path = repo_root / source_path
+    try:
+        with source_path.open(encoding="utf-8", errors="replace") as fh:
+            for idx, line in enumerate(fh, start=1):
+                if idx == line_idx:
+                    return line.rstrip("\r\n")
+    except OSError:
+        return None
+    return None
+
+details: List[Tuple[str, object, str, Optional[str]]] = []
+if isinstance(results, dict):
+    for filename, findings in results.items():
+        if exclude_regex and exclude_regex.search(str(filename)):
+            continue
+        if not isinstance(findings, list):
+            continue
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            line_number = finding.get("line_number", "?")
+            finding_type = str(finding.get("type", "Unknown"))
+            source_line = read_source_line(str(filename), line_number)
+            details.append((str(filename), line_number, finding_type, source_line))
+
+if details:
+    print("❌ Detect-secrets findings (in scope):")
+    for filename, line_number, finding_type, source_line in details:
+        print(f"❌ {filename}:{line_number} [{finding_type}]")
+        if source_line is None:
+            print("   source: <unavailable>")
+        else:
+            print(f"   source: {source_line}")
+PY
 
   print_tool_header \
     "gosec" \
@@ -291,7 +460,7 @@ run_sast_lane() {
   fi
 
   #R020: Aggregate SAST findings into a centralized gate summary.
-  python3 - <<'PY' "${REPORT_DIR}" "${FAIL_ON_HIGH_CRITICAL}" "${SHELLCHECK_EXIT}" "${GITLEAKS_EXIT}" "${GOSEC_EXIT}" "${GOVULNCHECK_EXIT}"
+  python3 - <<'PY' "${REPORT_DIR}" "${FAIL_ON_HIGH_CRITICAL}" "${SHELLCHECK_EXIT}" "${GITLEAKS_EXIT}" "${GOSEC_EXIT}" "${GOVULNCHECK_EXIT}" "${DETECT_SECRETS_EXCLUDE_FILES_REGEX}"
 import json
 import re
 import sys
@@ -304,6 +473,7 @@ shellcheck_exit = int(sys.argv[3])
 gitleaks_exit = int(sys.argv[4])
 gosec_exit = int(sys.argv[5])
 govulncheck_exit = int(sys.argv[6])
+detect_secrets_exclude_pattern = sys.argv[7]
 
 semgrep_path = report_dir / "semgrep.json"
 shellcheck_path = report_dir / "shellcheck.json"
@@ -373,8 +543,17 @@ govulncheck_findings = len(re.findall(r'"finding"\s*:', govulncheck_text))
 detect_secrets = load_first_json(detect_secrets_path, {})
 detect_secrets_results = detect_secrets.get("results", {}) if isinstance(detect_secrets, dict) else {}
 detect_secrets_findings = 0
+detect_secrets_exclude_regex = None
+if detect_secrets_exclude_pattern:
+    try:
+        detect_secrets_exclude_regex = re.compile(detect_secrets_exclude_pattern)
+    except re.error:
+        print(f"Invalid DETECT_SECRETS_EXCLUDE_FILES_REGEX: {detect_secrets_exclude_pattern}")
+        sys.exit(1)
 if isinstance(detect_secrets_results, dict):
-    for findings in detect_secrets_results.values():
+    for filename, findings in detect_secrets_results.items():
+        if detect_secrets_exclude_regex and detect_secrets_exclude_regex.search(str(filename)):
+            continue
         if isinstance(findings, list):
             detect_secrets_findings += len(findings)
 
@@ -424,9 +603,20 @@ run_dast_lane() {
   fi
   if [[ "${DAST_AUTO_BOOT}" == "true" ]]; then
     require_command go
-    if [[ -z "${MANIFOLD_DATABASE_URL:-}" ]]; then
-      echo "❌ MANIFOLD_DATABASE_URL is required when DAST_AUTO_BOOT=true."
-      echo "Set MANIFOLD_DATABASE_URL or run with DAST_AUTO_BOOT=false to target an existing service."
+    require_command 1psa
+    if [[ -z "${MANIFOLD_DATABASE_URL_1PSA_REF}" ]]; then
+      echo "❌ MANIFOLD_DATABASE_URL_1PSA_REF is required when DAST_AUTO_BOOT=true."
+      echo "Set MANIFOLD_DATABASE_URL_1PSA_REF to a 1psa secret reference or run with DAST_AUTO_BOOT=false."
+      exit 1
+    fi
+    local database_url=""
+    local database_host=""
+    local database_port=""
+    database_url="$(read_database_url_from_1psa "${MANIFOLD_DATABASE_URL_1PSA_REF}")"
+    database_host="$(read_database_host_from_1psa)"
+    database_port="$(read_database_port_from_1psa)"
+    if ! database_url="$(apply_database_host_port "${database_url}" "${database_host}" "${database_port}")"; then
+      echo "❌ Failed to apply MANIFOLD_DATABASE_HOST/MANIFOLD_DATABASE_PORT to database URL."
       exit 1
     fi
     local dast_bind_addr=""
@@ -437,10 +627,10 @@ run_dast_lane() {
     print_tool_header \
       "go run ./cmd/manifold" \
       "Auto-boots the local service so DAST has a deterministic target." \
-      "Uses MANIFOLD_ADDR derived from DAST_BASE_URL and streams logs." \
+      "Uses MANIFOLD_ADDR from DAST_BASE_URL and DB URL/host/port from 1psa." \
       "https://go.dev/"
     echo "▶ Auto-booting manifold service for DAST at ${DAST_BASE_URL}"
-    MANIFOLD_ADDR="${dast_bind_addr}" go run ./cmd/manifold > "${REPORT_DIR}/dast-app.log" 2>&1 &
+    MANIFOLD_ADDR="${dast_bind_addr}" MANIFOLD_DATABASE_URL="${database_url}" go run ./cmd/manifold > "${REPORT_DIR}/dast-app.log" 2>&1 &
     DAST_APP_PID="$!"
   fi
   local zap_runner_cmd=""

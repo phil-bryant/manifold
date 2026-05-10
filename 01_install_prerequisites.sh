@@ -156,6 +156,18 @@ ensure_dast_tools() {
     exit 1
 }
 
+ensure_1psa() {
+    #R050: Ensure 1psa is available for secure DB secret resolution.
+    echo "[1psa] Checking..."
+    if command -v 1psa >/dev/null 2>&1; then
+        echo "✅ [1psa] Available on PATH"
+        return
+    fi
+    echo "❌ [1psa] Missing."
+    echo "Install and authenticate 1psa, then rerun this installer."
+    exit 1
+}
+
 resolve_zap_baseline() {
     if command -v zap-baseline.py >/dev/null 2>&1; then
         echo "zap-baseline.py"
@@ -211,12 +223,10 @@ resolve_zap_cli() {
 
 print_final_guidance() {
     #R045: Print final local readiness guidance.
-    #R050: Include MANIFOLD_DATABASE_URL reminder for DB-dependent checks.
     echo ""
     echo "✅ All prerequisites are satisfied for this repository."
     echo ""
     echo "Next commands:"
-    echo "- export MANIFOLD_DATABASE_URL='postgres://user:pass@localhost:5432/manifold?sslmode=disable'"
     echo "- go test ./..."
     echo "- go test -race ./..."
     echo "- golangci-lint run"
@@ -234,6 +244,7 @@ main() {
     ensure_lint_tools
     ensure_sast_tools
     ensure_dast_tools
+    ensure_1psa
     print_final_guidance
 }
 

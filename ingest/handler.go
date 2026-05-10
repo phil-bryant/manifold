@@ -56,6 +56,7 @@ func (h Handler) ProcessBatch(ctx context.Context, providedKey string, batch Bat
 	}
 	if status == 0 {
 		persistResult, persistErr := h.store.PersistBatch(ctx, batch, rawBody)
+		// #R020: Map storage outcomes to deterministic conflict, unavailable, and internal error responses.
 		if persistErr != nil && errors.Is(persistErr, storage.ErrDuplicateBatchConflict) {
 			status = http.StatusConflict
 			response = APIResponse{

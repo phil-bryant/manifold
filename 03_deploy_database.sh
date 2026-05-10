@@ -7,8 +7,6 @@ POSTGRES_PSA_ITEM="${POSTGRES_PSA_ITEM:-localhost_postgres_postgres}"
 POSTGRES_PSA_FIELD="${POSTGRES_PSA_FIELD:-password}"
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
 MANIFOLD_PSA_FIELD="${MANIFOLD_PSA_FIELD:-password}"
-DB_HOST="localhost"
-DB_PORT="5432"
 DB_NAME="manifold"
 POSTGRES_USER="postgres"
 MANIFOLD_USER="manifold"
@@ -37,6 +35,16 @@ fi
 MANIFOLD_PASSWORD="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "$MANIFOLD_PSA_FIELD")"
 if [ -z "$MANIFOLD_PASSWORD" ]; then
   echo "Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_HOST="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "host")"
+if [ -z "$DB_HOST" ]; then
+  echo "Failed to resolve manifold host from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_PORT="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "port")"
+if [[ ! "${DB_PORT}" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); then
+  echo "Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
 MANIFOLD_PASSWORD_SQL="${MANIFOLD_PASSWORD//\'/\'\'}"

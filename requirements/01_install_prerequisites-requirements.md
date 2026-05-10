@@ -43,6 +43,12 @@ Tests:
 - Run installer without those tools and verify each required formula install is attempted.
 - Rerun installer and verify already-installed tools are not reinstalled.
 
+R050  Statement: Ensure `1psa` is available for secure Postgres connection secret retrieval.
+Design: Require `1psa` on `PATH`; fail with actionable setup guidance when missing.
+Tests:
+- Run without `1psa` and verify installer exits non-zero with explicit setup guidance.
+- Run with `1psa` available and verify installer continues.
+
 R055  Statement: Ensure DAST runtime tooling is available before completing prerequisites.
 Design: Verify/install `schemathesis`, then accept `zap-baseline.py` from PATH, or discover ZAP CLI (`ZAP.sh`/`zap.sh`) under PATH or `ZAP_APP_PATH` (`/Applications/ZAP.app` by default); when missing, install Homebrew cask `zap` and re-verify command discovery.
 Tests:
@@ -51,7 +57,7 @@ Tests:
 - Run installer with `zap-baseline.py` or `ZAP.sh` available and verify cask install is skipped.
 
 R035  Statement: Print explicit status for each prerequisite phase.
-Design: Emit clear checking/install/success/failure output for Homebrew, Go, Go version, Postgres CLI, lint toolchain, SAST/AV tools, and DAST runtime tooling.
+Design: Emit clear checking/install/success/failure output for Homebrew, Go, Go version, Postgres CLI, lint toolchain, SAST/AV tools, DAST runtime tooling, and `1psa`.
 Tests:
 - Run installer and verify phase status output appears for all major checks.
 
@@ -65,13 +71,9 @@ Design: End with success output that references repository commands (`go test ./
 Tests:
 - On successful run, verify final guidance includes those commands.
 
-R050  Statement: Keep local setup guidance explicit for database-dependent checks.
-Design: Success guidance includes reminder to export `MANIFOLD_DATABASE_URL` before running readiness checks.
-Tests:
-- Run installer successfully and verify final guidance includes `MANIFOLD_DATABASE_URL`.
-
 ## Changelog
 
+- 2026-05-10: Added explicit `1psa` prerequisite required for secure DB secret resolution in step-06 auto-boot.
 - 2026-05-10: Added `detect-secrets` and `schemathesis` to prerequisite tooling coverage.
 - 2026-05-10: Added explicit DAST runtime prerequisite coverage (`zap-baseline.py`).
 - 2026-05-10: Switched DAST prerequisite installation to Homebrew cask `zap` with `ZAP_APP_PATH` discovery.

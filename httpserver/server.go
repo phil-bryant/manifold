@@ -40,6 +40,7 @@ func NewServer(addr string, db ReadinessStore, ingestService IngestService, logg
 		limiter:     newMinuteLimiter(requestsPerMinute),
 	}
 	strictImpl := &strictAPI{server: server}
+	// #R001: Register ingest, health, and readiness API routes before serving traffic.
 	strictHandler := apiv1gen.NewStrictHandlerWithOptions(strictImpl, nil, apiv1gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: server.handleStrictRequestError,
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {

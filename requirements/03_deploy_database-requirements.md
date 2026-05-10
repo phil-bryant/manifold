@@ -10,10 +10,11 @@ Tests:
 - Force `psql` failure and verify script exits non-zero.
 
 R005  Statement: Resolve deploy credentials exclusively from `1psa`.
-Design: Read postgres admin password from `localhost_postgres_postgres` and manifold password from `localhost_postgres_manifold` (default `password` field for both), with optional `POSTGRES_PSA_ITEM`/`POSTGRES_PSA_FIELD` and `MANIFOLD_PSA_ITEM`/`MANIFOLD_PSA_FIELD` overrides.
+Design: Read postgres admin password from `localhost_postgres_postgres`; read manifold password plus connection target `host`/`port` from `localhost_postgres_manifold` (`password`, `host`, `port` fields), with optional item/field overrides for password retrieval.
 Tests:
 - Run with `1psa` unavailable and verify explicit non-zero failure output.
 - Return empty manifold credential from `1psa` and verify explicit non-zero failure output.
+- Return empty manifold host/port from `1psa` and verify explicit non-zero failure output.
 
 R010  Statement: Refuse deploy when `psql` is unavailable.
 Design: Verify `psql` exists on PATH before attempting schema application.
@@ -31,7 +32,7 @@ Tests:
 - Remove schema file in a fixture and verify explicit non-zero failure output.
 
 R025  Statement: Bootstrap manifold role/database and apply schema with fail-fast `psql` execution.
-Design: Connect as postgres to create-or-alter role `manifold`, create-or-own database `manifold`, then execute schema apply as user `manifold` using `-w -h localhost -p 5432 -d manifold -v ON_ERROR_STOP=1 -f storage/schema.sql`.
+Design: Connect as postgres to create-or-alter role `manifold`, create-or-own database `manifold`, then execute schema apply as user `manifold` using `-w -h <1psa host> -p <1psa port> -d manifold -v ON_ERROR_STOP=1 -f storage/schema.sql`.
 Tests:
 - Verify deploy invokes admin `psql` bootstrap commands and manifold schema apply with `ON_ERROR_STOP=1`.
 
@@ -42,4 +43,5 @@ Tests:
 
 ## Changelog
 
+- 2026-05-10: Updated deploy target host/port to be sourced from `localhost_postgres_manifold` `host`/`port` fields via `1psa`.
 - 2026-05-09: Replaced teller-oriented deploy requirements with manifold schema deploy requirements.

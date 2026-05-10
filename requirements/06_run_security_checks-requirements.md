@@ -21,22 +21,24 @@ Tests:
 - Verify no dependency freshness artifacts are emitted by step-06.
 
 R015  Statement: Run SAST scanners (including shell script linting and secret scanners) and persist machine-readable artifacts.
-Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, and `govulncheck`; write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, and `govulncheck.json` under the report directory.
+Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, and `govulncheck`; run `detect-secrets` with explicit file exclusion support (default excludes `.gomodcache` via `DETECT_SECRETS_EXCLUDE_FILES_REGEX`); write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, and `govulncheck.json` under the report directory.
 Tests:
 - Run SAST lane with stubs and verify each expected scanner artifact file is generated.
+- Verify `detect-secrets` invocation includes the default `.gomodcache` exclusion regex.
 
 R020  Statement: Aggregate SAST findings into a centralized gating summary.
-Design: Build `sast-summary.json` from scanner outputs, include high/critical totals, and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and findings are non-zero.
+Design: Build `sast-summary.json` from scanner outputs, include high/critical totals, count `detect-secrets` findings after applying the same exclusion regex policy used during scan invocation, and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and findings are non-zero.
 Tests:
 - Seed finding-producing scanner outputs and verify gate fails with explicit SAST gate message.
 - Run with clean scanner outputs and verify `sast-summary.json` indicates gate pass.
+- Verify findings under `.gomodcache` are excluded from detect-secrets gate totals while in-scope findings still fail the gate.
 
 R025  Statement: Enable DAST by default while allowing explicit opt-out and deterministic local target boot.
-Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `MANIFOLD_DATABASE_URL`, and always clean up the background process.
+Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa` plus `MANIFOLD_DATABASE_URL_1PSA_REF`, resolve DB host and port directly from `1psa` item `localhost_postgres_manifold` fields `host` and `port` (no host/port env configuration), and construct the runtime Postgres DSN using those `1psa` values before boot.
 Tests:
 - Run without setting `RUN_DAST` and verify DAST executes.
 - Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
-- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked.
+- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` and host/port sourced from `localhost_postgres_manifold.host`/`localhost_postgres_manifold.port`.
 
 R030  Statement: Probe service health before launching DAST scanning.
 Design: Require a successful `curl` probe to `${DAST_BASE_URL}/healthz`; when `DAST_AUTO_BOOT=true`, wait up to `DAST_AUTO_BOOT_TIMEOUT_SECONDS` for service readiness, write `dast-health.log`, and fail with explicit diagnostics when the probe fails.
@@ -72,6 +74,9 @@ Tests:
 
 ## Changelog
 
+- 2026-05-10: Removed host/port env references for DAST auto-boot; host/port now come directly from `localhost_postgres_manifold` item fields.
+- 2026-05-10: Updated DAST auto-boot to require dedicated `1psa` host/port references and apply them to the runtime Postgres DSN.
+- 2026-05-10: Updated DAST auto-boot to require `1psa` + `MANIFOLD_DATABASE_URL_1PSA_REF` and resolve DB URL exclusively through `1psa read`.
 - 2026-05-10: Added DAST auto-boot lifecycle for `go run ./cmd/manifold` and Schemathesis contract-testing integration.
 - 2026-05-10: Added `detect-secrets` to step-06 SAST tooling, artifacts, and gate summary.
 - 2026-05-10: Added explicit console observability requirement for live DAST execution context output.

@@ -38,6 +38,16 @@ EOF
   chmod +x "${STUB_BIN}/go"
 }
 
+make_bats_stub() {
+  local exit_code="${1:-0}"
+  cat > "${STUB_BIN}/bats" <<EOF
+#!/usr/bin/env bash
+echo "bats \$*" >> "${CALLS_LOG}"
+exit ${exit_code}
+EOF
+  chmod +x "${STUB_BIN}/bats"
+}
+
 make_1psa_stub() {
   cat > "${STUB_BIN}/1psa" <<'EOF'
 #!/usr/bin/env bash
@@ -88,6 +98,7 @@ setup() {
   setup_fixture
   make_psql_stub 0
   make_go_stub 0
+  make_bats_stub 0
   make_1psa_stub
 }
 
@@ -127,11 +138,24 @@ setup() {
   #R010
   rm -f "${STUB_BIN}/go"
   make_psql_stub 0
+  make_bats_stub 0
   make_1psa_stub
   export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
   run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"go is required"* ]]
+}
+
+@test "fails when bats is unavailable" {
+  #R010
+  rm -f "${STUB_BIN}/bats"
+  make_psql_stub 0
+  make_go_stub 0
+  make_1psa_stub
+  export PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
+  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"bats is required"* ]]
 }
 
 @test "resolves SQL unit-test path relative to script location" {
@@ -187,22 +211,28 @@ setup() {
   #R030
   make_psql_stub 0
   make_go_stub 1
+  make_bats_stub 0
   run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   grep -F "go test ./..." "${CALLS_LOG}"
 }
 
-@test "runs go tests only after SQL unit tests pass" {
+@test "runs go then bats only after SQL unit tests pass" {
   #R030
+  make_bats_stub 0
   run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   local sql_line
   sql_line="$(grep -n "ingest_schema_pgtap.sql" "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
   local go_line
   go_line="$(grep -n "go test ./..." "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
+  local bats_line
+  bats_line="$(grep -n "bats " "${CALLS_LOG}" | cut -d: -f1 | head -n 1)"
   [ -n "$sql_line" ]
   [ -n "$go_line" ]
+  [ -n "$bats_line" ]
   [ "$go_line" -gt "$sql_line" ]
+  [ "$bats_line" -gt "$go_line" ]
 }
 
 @test "fails when go test output includes packages with no test files" {
@@ -224,6 +254,7 @@ setup() {
 @test "emits a single pass line after successful SQL and Go unit tests" {
   #R035
   make_go_stub 0 "with-tests"
+  make_bats_stub 0
   run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
