@@ -2,15 +2,18 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"manifold/ingest"
+	"manifold/internal/apiv1gen"
 )
 
 type ReadinessStore interface {
@@ -20,24 +23,37 @@ type ReadinessStore interface {
 type Server struct {
 	server      *http.Server
 	readinessDB ReadinessStore
+	ingest      IngestService
 	logger      *slog.Logger
 	limiter     *minuteLimiter
 }
 
-func NewServer(addr string, db ReadinessStore, ingestHandler http.Handler, logger *slog.Logger, requestsPerMinute int) *Server {
-	mux := http.NewServeMux()
+type IngestService interface {
+	ProcessBatch(ctx context.Context, providedKey string, batch ingest.BatchRequest, rawBody []byte) (int, ingest.APIResponse, []any)
+}
+
+func NewServer(addr string, db ReadinessStore, ingestService IngestService, logger *slog.Logger, requestsPerMinute int) *Server {
 	server := &Server{
 		readinessDB: db,
+		ingest:      ingestService,
 		logger:      logger,
 		limiter:     newMinuteLimiter(requestsPerMinute),
 	}
-	// #R001: Register ingest and operational routes during server construction.
-	mux.Handle("/v1/events/batch", server.withMiddleware(ingestHandler))
-	mux.Handle("/healthz", server.withMiddleware(http.HandlerFunc(server.handleHealth)))
-	mux.Handle("/readyz", server.withMiddleware(http.HandlerFunc(server.handleReady)))
+	strictImpl := &strictAPI{server: server}
+	strictHandler := apiv1gen.NewStrictHandlerWithOptions(strictImpl, nil, apiv1gen.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc: server.handleStrictRequestError,
+		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
+			payload := ingest.APIResponse{Accepted: false, ErrorCode: "internal_error", Message: "internal server error"}
+			_ = writeJSONResponse(w, http.StatusInternalServerError, payload)
+		},
+	})
+	rootHandler := apiv1gen.HandlerWithOptions(strictHandler, apiv1gen.StdHTTPServerOptions{
+		BaseRouter:  http.NewServeMux(),
+		Middlewares: []apiv1gen.MiddlewareFunc{server.withMiddleware},
+	})
 	server.server = &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return server
@@ -85,30 +101,6 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	payload := map[string]interface{}{"ok": true}
-	err := writeJSONMap(w, http.StatusOK, payload)
-	if err != nil {
-		s.logger.Error("health response write failed", "error", err)
-	}
-}
-
-func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	status := http.StatusOK
-	payload := map[string]interface{}{"ok": true}
-	// #R015: Report readiness based on storage ping availability.
-	err := s.readinessDB.Ping(r.Context())
-	if err != nil {
-		status = http.StatusServiceUnavailable
-		payload["ok"] = false
-		payload["error_code"] = "storage_unavailable"
-	}
-	writeErr := writeJSONMap(w, status, payload)
-	if writeErr != nil {
-		s.logger.Error("ready response write failed", "error", writeErr)
-	}
-}
-
 func writeJSONResponse(w http.ResponseWriter, status int, payload ingest.APIResponse) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -116,20 +108,6 @@ func writeJSONResponse(w http.ResponseWriter, status int, payload ingest.APIResp
 		`{"accepted":%s,"error_code":"%s","message":"%s"}`,
 		strconv.FormatBool(payload.Accepted), payload.ErrorCode, payload.Message,
 	)))
-	return err
-}
-
-func writeJSONMap(w http.ResponseWriter, status int, payload map[string]interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	ok, _ := payload["ok"].(bool)
-	errorCode, _ := payload["error_code"].(string)
-	body := `{"ok":` + strconv.FormatBool(ok)
-	if errorCode != "" {
-		body += `,"error_code":"` + errorCode + `"`
-	}
-	body += "}"
-	_, err := w.Write([]byte(body))
 	return err
 }
 
@@ -185,3 +163,122 @@ func (l *minuteLimiter) Allow() bool {
 	l.windowLock.Unlock()
 	return allowed
 }
+
+type strictAPI struct {
+	server *Server
+}
+
+func (a *strictAPI) GetHealthz(_ context.Context, _ apiv1gen.GetHealthzRequestObject) (apiv1gen.GetHealthzResponseObject, error) {
+	return apiv1gen.GetHealthz200JSONResponse{Ok: true}, nil
+}
+
+func (a *strictAPI) GetReadyz(ctx context.Context, _ apiv1gen.GetReadyzRequestObject) (apiv1gen.GetReadyzResponseObject, error) {
+	// #R015: Report readiness based on storage ping availability.
+	err := a.server.readinessDB.Ping(ctx)
+	if err != nil {
+		return apiv1gen.GetReadyz503JSONResponse{Ok: false, ErrorCode: strPtr("storage_unavailable")}, nil
+	}
+	return apiv1gen.GetReadyz200JSONResponse{Ok: true}, nil
+}
+
+func (a *strictAPI) PostEventsBatch(
+	ctx context.Context, request apiv1gen.PostEventsBatchRequestObject,
+) (apiv1gen.PostEventsBatchResponseObject, error) {
+	if request.Body == nil {
+		return mapPostEventsResponse(http.StatusBadRequest, ingest.APIResponse{
+			Accepted: false, ErrorCode: "invalid_json", Message: "invalid JSON body",
+		}), nil
+	}
+	rawBody, err := json.Marshal(request.Body)
+	if err != nil {
+		return mapPostEventsResponse(http.StatusInternalServerError, ingest.APIResponse{
+			Accepted: false, ErrorCode: "internal_error", Message: "internal server error",
+		}), nil
+	}
+	providedKey := ""
+	if request.Params.XManifoldIngestKey != nil {
+		providedKey = strings.TrimSpace(string(*request.Params.XManifoldIngestKey))
+	}
+	status, response, _ := a.server.ingest.ProcessBatch(ctx, providedKey, mapBatchRequest(*request.Body), rawBody)
+	return mapPostEventsResponse(status, response), nil
+}
+
+func (s *Server) handleStrictRequestError(w http.ResponseWriter, r *http.Request, _ error) {
+	payload := ingest.APIResponse{Accepted: false, ErrorCode: "invalid_json", Message: "invalid JSON body"}
+	if r.URL.Path != "/v1/events/batch" {
+		payload.ErrorCode = "invalid_request"
+		payload.Message = "invalid request"
+	}
+	_ = writeJSONResponse(w, http.StatusBadRequest, payload)
+}
+
+func mapBatchRequest(in apiv1gen.BatchRequest) ingest.BatchRequest {
+	events := make([]ingest.EventRecord, 0, len(in.Events))
+	for _, event := range in.Events {
+		events = append(events, ingest.EventRecord{
+			SchemaVersion: event.SchemaVersion,
+			EventID:       event.EventId,
+			Timestamp:     event.Timestamp,
+			Level:         string(event.Level),
+			Event:         event.Event,
+			Component:     event.Component,
+			InstallID:     event.InstallId,
+			Fields:        event.Fields,
+		})
+	}
+	return ingest.BatchRequest{
+		BatchID: in.BatchId,
+		SentAt:  in.SentAt,
+		Events:  events,
+	}
+}
+
+func mapPostEventsResponse(status int, in ingest.APIResponse) apiv1gen.PostEventsBatchResponseObject {
+	out := apiv1gen.APIResponse{Accepted: in.Accepted}
+	if in.BatchID != "" {
+		out.BatchId = strPtr(in.BatchID)
+	}
+	if in.AcceptedEventCount != 0 {
+		out.AcceptedEventCount = intPtr(in.AcceptedEventCount)
+	}
+	if in.DuplicateEventCount != 0 {
+		out.DuplicateEventCount = intPtr(in.DuplicateEventCount)
+	}
+	if in.RejectedEventCount != 0 {
+		out.RejectedEventCount = intPtr(in.RejectedEventCount)
+	}
+	if in.ErrorCode != "" {
+		out.ErrorCode = strPtr(in.ErrorCode)
+	}
+	if in.Message != "" {
+		out.Message = strPtr(in.Message)
+	}
+	if in.Path != "" {
+		out.Path = strPtr(in.Path)
+	}
+	switch status {
+	case http.StatusOK:
+		return apiv1gen.PostEventsBatch200JSONResponse(out)
+	case http.StatusBadRequest:
+		return apiv1gen.PostEventsBatch400JSONResponse(out)
+	case http.StatusUnauthorized:
+		return apiv1gen.PostEventsBatch401JSONResponse(out)
+	case http.StatusConflict:
+		return apiv1gen.PostEventsBatch409JSONResponse(out)
+	case http.StatusRequestEntityTooLarge:
+		return apiv1gen.PostEventsBatch413JSONResponse(out)
+	case http.StatusUnsupportedMediaType:
+		return apiv1gen.PostEventsBatch415JSONResponse(out)
+	case http.StatusUnprocessableEntity:
+		return apiv1gen.PostEventsBatch422JSONResponse(out)
+	case http.StatusTooManyRequests:
+		return apiv1gen.PostEventsBatch429JSONResponse(out)
+	case http.StatusServiceUnavailable:
+		return apiv1gen.PostEventsBatch503JSONResponse(out)
+	default:
+		return apiv1gen.PostEventsBatch500JSONResponse(out)
+	}
+}
+
+func strPtr(v string) *string { return &v }
+func intPtr(v int) *int       { return &v }

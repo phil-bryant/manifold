@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: Manifold API
+  version: 1.0.0
+  description: |
+    Contract for the Manifold ingest and operational endpoints.
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /v1/events/batch:
+    post:
+      operationId: postEventsBatch
+      summary: Ingest a batch of structured events
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/XManifoldIngestKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchRequest"
+      responses:
+        "200":
+          description: Batch accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "400":
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "401":
+          description: Ingest key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "409":
+          description: Batch identifier conflict with mismatched payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "413":
+          description: Request body exceeds configured maximum size
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "415":
+          description: Unsupported content type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "422":
+          description: Payload failed schema validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "429":
+          description: Per-minute request quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "500":
+          description: Internal server failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "503":
+          description: Storage temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Process is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /readyz:
+    get:
+      operationId: getReadyz
+      summary: Readiness probe backed by storage ping
+      responses:
+        "200":
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+components:
+  parameters:
+    XRequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+    XManifoldIngestKey:
+      name: X-Manifold-Ingest-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+  schemas:
+    BatchRequest:
+      type: object
+      required:
+        - batch_id
+        - sent_at
+        - events
+      properties:
+        batch_id:
+          type: string
+          minLength: 1
+        sent_at:
+          type: string
+        events:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EventRecord"
+    EventRecord:
+      type: object
+      required:
+        - schema_version
+        - event_id
+        - timestamp
+        - level
+        - event
+        - component
+        - install_id
+        - fields
+      properties:
+        schema_version:
+          type: integer
+        event_id:
+          type: string
+          minLength: 1
+        timestamp:
+          type: string
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        event:
+          type: string
+          minLength: 1
+        component:
+          type: string
+          minLength: 1
+        install_id:
+          type: string
+          minLength: 1
+        fields:
+          type: object
+          additionalProperties: true
+    APIResponse:
+      type: object
+      required:
+        - accepted
+      properties:
+        accepted:
+          type: boolean
+        batch_id:
+          type: string
+        accepted_event_count:
+          type: integer
+        duplicate_event_count:
+          type: integer
+        rejected_event_count:
+          type: integer
+        error_code:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+    HealthResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+    ReadyResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        error_code:
+          type: string

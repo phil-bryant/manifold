@@ -16,12 +16,30 @@ ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
 DAST_IGNORED_ALERT_REFS="${DAST_IGNORED_ALERT_REFS:-10055-13}"
 DAST_HEALTH_PROBE_TIMEOUT_SECONDS="${DAST_HEALTH_PROBE_TIMEOUT_SECONDS:-5}"
 DAST_ZAP_TIMEOUT_SECONDS="${DAST_ZAP_TIMEOUT_SECONDS:-180}"
+DAST_AUTO_BOOT="${DAST_AUTO_BOOT:-true}"
+DAST_AUTO_BOOT_TIMEOUT_SECONDS="${DAST_AUTO_BOOT_TIMEOUT_SECONDS:-30}"
+RUN_SCHEMATHESIS="${RUN_SCHEMATHESIS:-true}"
+SCHEMATHESIS_SCHEMA_PATH="${SCHEMATHESIS_SCHEMA_PATH:-${SCRIPT_DIR}/openapi/manifold.v1.yaml}"
+SCHEMATHESIS_TIMEOUT_SECONDS="${SCHEMATHESIS_TIMEOUT_SECONDS:-180}"
+SCHEMATHESIS_SEED="${SCHEMATHESIS_SEED:-424242}"
+SCHEMATHESIS_MAX_EXAMPLES="${SCHEMATHESIS_MAX_EXAMPLES:-25}"
+
+DAST_APP_PID=""
 
 if [[ "${REPORT_DIR}" != /* ]]; then
   REPORT_DIR="${SCRIPT_DIR}/${REPORT_DIR#./}"
 fi
 
 mkdir -p "$REPORT_DIR"
+
+cleanup_dast_app() {
+  if [[ -n "${DAST_APP_PID}" ]] && kill -0 "${DAST_APP_PID}" >/dev/null 2>&1; then
+    kill "${DAST_APP_PID}" >/dev/null 2>&1 || true
+    wait "${DAST_APP_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+trap cleanup_dast_app EXIT
 
 require_command() {
   local command_name="$1"
@@ -129,6 +147,40 @@ except subprocess.TimeoutExpired:
 PY
 }
 
+resolve_dast_bind_address() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+parsed = urlparse(sys.argv[1])
+host = parsed.hostname or ""
+if not host:
+    raise SystemExit(1)
+port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+print(f"{host}:{port}")
+PY
+}
+
+wait_for_healthz() {
+  local base_url="$1"
+  local timeout_seconds="$2"
+  local start_ts
+  start_ts="$(date +%s)"
+  while true; do
+    set +e
+    run_with_timeout 2 curl -fsS --max-time 2 "${base_url}/healthz" > "${REPORT_DIR}/dast-health.log"
+    local health_exit=$?
+    set -e
+    if [[ "$health_exit" -eq 0 ]]; then
+      return 0
+    fi
+    if (( "$(date +%s)" - start_ts >= timeout_seconds )); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 run_sast_lane() {
   #R015: Run Go-focused SAST scanners and persist machine-readable artifacts.
   if [[ "$RUN_SAST" != "true" ]]; then
@@ -139,6 +191,7 @@ run_sast_lane() {
   require_command semgrep
   require_command shellcheck
   require_command gitleaks
+  require_command detect-secrets
   require_command gosec
   require_command govulncheck
   require_command python3
@@ -196,6 +249,14 @@ run_sast_lane() {
   fi
 
   print_tool_header \
+    "detect-secrets" \
+    "Scans repository files for high-entropy and known secret formats." \
+    "Helps catch accidentally committed credentials before release." \
+    "https://github.com/Yelp/detect-secrets"
+  echo "▶ Running detect-secrets"
+  detect-secrets scan --all-files --force-use-all-plugins > "${REPORT_DIR}/detect-secrets.json"
+
+  print_tool_header \
     "gosec" \
     "Static security analyzer focused on vulnerable Go code patterns." \
     "Surfaces risky API usage and common implementation weaknesses." \
@@ -249,8 +310,9 @@ shellcheck_path = report_dir / "shellcheck.json"
 gitleaks_path = report_dir / "gitleaks.json"
 gosec_path = report_dir / "gosec.json"
 govulncheck_path = report_dir / "govulncheck.json"
+detect_secrets_path = report_dir / "detect-secrets.json"
 
-for required in [semgrep_path, shellcheck_path, gitleaks_path, gosec_path, govulncheck_path]:
+for required in [semgrep_path, shellcheck_path, gitleaks_path, gosec_path, govulncheck_path, detect_secrets_path]:
     if not required.exists():
         print(f"Missing report file: {required}")
         sys.exit(1)
@@ -308,11 +370,22 @@ gosec_high = sum(1 for issue in issues if str(issue.get("severity", "")).upper()
 govulncheck_text = govulncheck_path.read_text(encoding="utf-8", errors="replace")
 govulncheck_findings = len(re.findall(r'"finding"\s*:', govulncheck_text))
 
-high_critical_total = shellcheck_high + semgrep_high + gitleaks_findings + gosec_high + govulncheck_findings
+detect_secrets = load_first_json(detect_secrets_path, {})
+detect_secrets_results = detect_secrets.get("results", {}) if isinstance(detect_secrets, dict) else {}
+detect_secrets_findings = 0
+if isinstance(detect_secrets_results, dict):
+    for findings in detect_secrets_results.values():
+        if isinstance(findings, list):
+            detect_secrets_findings += len(findings)
+
+high_critical_total = (
+    shellcheck_high + semgrep_high + gitleaks_findings + gosec_high + govulncheck_findings + detect_secrets_findings
+)
 summary = {
     "shellcheck_high_critical": shellcheck_high,
     "semgrep_high_critical": semgrep_high,
     "gitleaks_findings": gitleaks_findings,
+    "detect_secrets_findings": detect_secrets_findings,
     "gosec_high_critical": gosec_high,
     "govulncheck_findings": govulncheck_findings,
     "shellcheck_exit_code": shellcheck_exit,
@@ -346,6 +419,30 @@ run_dast_lane() {
 
   require_command curl
   require_command python3
+  if [[ "${RUN_SCHEMATHESIS}" == "true" ]]; then
+    require_command schemathesis
+  fi
+  if [[ "${DAST_AUTO_BOOT}" == "true" ]]; then
+    require_command go
+    if [[ -z "${MANIFOLD_DATABASE_URL:-}" ]]; then
+      echo "❌ MANIFOLD_DATABASE_URL is required when DAST_AUTO_BOOT=true."
+      echo "Set MANIFOLD_DATABASE_URL or run with DAST_AUTO_BOOT=false to target an existing service."
+      exit 1
+    fi
+    local dast_bind_addr=""
+    if ! dast_bind_addr="$(resolve_dast_bind_address "${DAST_BASE_URL}")"; then
+      echo "❌ Unable to derive bind address from DAST_BASE_URL: ${DAST_BASE_URL}"
+      exit 1
+    fi
+    print_tool_header \
+      "go run ./cmd/manifold" \
+      "Auto-boots the local service so DAST has a deterministic target." \
+      "Uses MANIFOLD_ADDR derived from DAST_BASE_URL and streams logs." \
+      "https://go.dev/"
+    echo "▶ Auto-booting manifold service for DAST at ${DAST_BASE_URL}"
+    MANIFOLD_ADDR="${dast_bind_addr}" go run ./cmd/manifold > "${REPORT_DIR}/dast-app.log" 2>&1 &
+    DAST_APP_PID="$!"
+  fi
   local zap_runner_cmd=""
   local zap_runner_mode=""
   if zap_runner_cmd="$(resolve_zap_baseline)"; then
@@ -366,18 +463,49 @@ run_dast_lane() {
     "Confirms /healthz is reachable before dynamic scanning starts." \
     "https://curl.se/"
   echo "▶ Running DAST lane health probe against ${DAST_BASE_URL}"
-  set +e
-  run_with_timeout "${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}" \
-    curl -fsS --max-time "${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}" "${DAST_BASE_URL}/healthz" > "${REPORT_DIR}/dast-health.log"
-  DAST_HEALTH_EXIT=$?
-  set -e
-  if [[ "$DAST_HEALTH_EXIT" -eq 124 ]]; then
-    echo "❌ DAST health probe timed out after ${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}s: ${DAST_BASE_URL}/healthz"
-    exit 1
+  local health_timeout_seconds="${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}"
+  if [[ "${DAST_AUTO_BOOT}" == "true" ]]; then
+    health_timeout_seconds="${DAST_AUTO_BOOT_TIMEOUT_SECONDS}"
   fi
-  if [[ "$DAST_HEALTH_EXIT" -ne 0 ]]; then
+  if ! wait_for_healthz "${DAST_BASE_URL}" "${health_timeout_seconds}"; then
     echo "❌ DAST health probe failed: ${DAST_BASE_URL}/healthz"
     exit 1
+  fi
+
+  local schemathesis_exit=0
+  if [[ "${RUN_SCHEMATHESIS}" == "true" ]]; then
+    print_tool_header \
+      "Schemathesis" \
+      "Property-based API testing driven by the OpenAPI specification." \
+      "Finds contract mismatches by generating and exercising request scenarios." \
+      "https://schemathesis.readthedocs.io/"
+    if [[ ! -f "${SCHEMATHESIS_SCHEMA_PATH}" ]]; then
+      echo "❌ Schemathesis schema file not found: ${SCHEMATHESIS_SCHEMA_PATH}"
+      exit 1
+    fi
+    echo "▶ Running Schemathesis against ${SCHEMATHESIS_SCHEMA_PATH}"
+    set +e
+    run_with_timeout "${SCHEMATHESIS_TIMEOUT_SECONDS}" \
+      schemathesis run "${SCHEMATHESIS_SCHEMA_PATH}" \
+      --url "${DAST_BASE_URL}" \
+      --mode positive \
+      --seed "${SCHEMATHESIS_SEED}" \
+      --max-examples "${SCHEMATHESIS_MAX_EXAMPLES}" \
+      --report junit \
+      --report-junit-path "${REPORT_DIR}/schemathesis-junit.xml" \
+      > "${REPORT_DIR}/schemathesis.log" 2>&1
+    schemathesis_exit=$?
+    set -e
+    if [[ "$schemathesis_exit" -eq 124 ]]; then
+      echo "❌ Schemathesis run timed out after ${SCHEMATHESIS_TIMEOUT_SECONDS}s."
+      exit 1
+    fi
+    if [[ "$schemathesis_exit" -gt 1 ]]; then
+      echo "❌ Schemathesis failed to execute."
+      exit 1
+    fi
+  else
+    echo "ℹ️  Schemathesis skipped."
   fi
 
   #R035: Execute OWASP ZAP baseline via host-native zap-baseline.py.
@@ -390,6 +518,10 @@ run_dast_lane() {
     "https://www.zaproxy.org/"
   echo "▶ Running real DAST scan with OWASP ZAP baseline against ${zap_target_url}"
   local zap_report_path="${REPORT_DIR}/dast-zap-report.json"
+  #R050: Print DAST execution context so operators can observe live scan behavior.
+  echo "▶ DAST runner resolved to: ${zap_runner_cmd} (${zap_runner_mode})"
+  echo "▶ DAST timeout: ${DAST_ZAP_TIMEOUT_SECONDS}s"
+  echo "▶ DAST report artifact: ${zap_report_path}"
   local zap_exit=0
   set +e
   if [[ "${zap_runner_mode}" == "baseline" && "${zap_runner_cmd}" == "zap-baseline.py" ]]; then
@@ -430,7 +562,7 @@ run_dast_lane() {
   fi
 
   #R040: Summarize DAST findings and enforce medium/high gate policy.
-  python3 - <<'PY' "${REPORT_DIR}/dast-summary.json" "${DAST_BASE_URL}" "${zap_target_url}" "${zap_report_path}" "${FAIL_ON_HIGH_CRITICAL}" "${zap_exit}" "${DAST_IGNORED_ALERT_REFS}"
+  python3 - <<'PY' "${REPORT_DIR}/dast-summary.json" "${DAST_BASE_URL}" "${zap_target_url}" "${zap_report_path}" "${FAIL_ON_HIGH_CRITICAL}" "${zap_exit}" "${DAST_IGNORED_ALERT_REFS}" "${schemathesis_exit}" "${RUN_SCHEMATHESIS}"
 import json
 import sys
 from urllib.parse import urlparse
@@ -442,6 +574,8 @@ zap_report_path = sys.argv[4]
 fail_on_high = sys.argv[5].lower() == "true"
 zap_exit = int(sys.argv[6])
 ignored_alert_refs = {value.strip() for value in sys.argv[7].split(",") if value.strip()}
+schemathesis_exit = int(sys.argv[8])
+run_schemathesis = sys.argv[9].lower() == "true"
 
 def load_first_json(path: str):
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -501,13 +635,16 @@ total_alerts = len(alerts)
 scoped_total = len(scoped_alerts)
 ignored_alerts = scoped_total - len(filtered_alerts)
 out_of_scope_alerts = total_alerts - scoped_total
-gate_failed = fail_on_high and (high_count + medium_count > 0)
+gate_failed = fail_on_high and (high_count + medium_count > 0 or (run_schemathesis and schemathesis_exit == 1))
 
 payload = {
     "health_probe_target": base_url,
     "zap_target": zap_target,
     "zap_report": zap_report_path,
     "zap_exit_code": zap_exit,
+    "schemathesis_enabled": run_schemathesis,
+    "schemathesis_exit_code": schemathesis_exit,
+    "schemathesis_gate_failed": run_schemathesis and schemathesis_exit == 1,
     "zap_alerts": {
         "high": high_count,
         "medium": medium_count,
@@ -528,9 +665,15 @@ with open(summary_path, "w", encoding="utf-8") as fh:
 print("Dynamic Application Security Testing (DAST) summary")
 print(json.dumps(payload, indent=2))
 if gate_failed:
-    print("❌ Dynamic Application Security Testing (DAST) gate failed: Medium/High alerts detected.")
+    print("❌ Dynamic Application Security Testing (DAST) gate failed: Medium/High alerts or Schemathesis contract failures detected.")
     sys.exit(1)
 PY
+  if [[ -n "${DAST_APP_PID}" ]] && kill -0 "${DAST_APP_PID}" >/dev/null 2>&1; then
+    echo "▶ Stopping auto-booted manifold service after DAST"
+    kill "${DAST_APP_PID}" >/dev/null 2>&1 || true
+    wait "${DAST_APP_PID}" >/dev/null 2>&1 || true
+    DAST_APP_PID=""
+  fi
   echo "✅ Dynamic Application Security Testing (DAST) checks completed."
 }
 

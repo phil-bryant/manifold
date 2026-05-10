@@ -32,56 +32,16 @@ func NewHandler(
 	return Handler{maxBodyBytes: maxBodyBytes, limits: limits, validator: validator, store: store, logger: logger}
 }
 
-func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var status int
+func (h Handler) ProcessBatch(ctx context.Context, providedKey string, batch BatchRequest, rawBody []byte) (int, APIResponse, []any) {
+	status := 0
 	response := APIResponse{}
 	var logAttrs []any
-	// #R001: Reject unsupported methods and content types before processing.
-	if r.Method != http.MethodPost {
-		status = http.StatusMethodNotAllowed
-		response = APIResponse{Accepted: false, ErrorCode: "method_not_allowed", Message: "method not allowed"}
-	}
-	contentType, _, contentErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if status == 0 && (contentErr != nil || contentType != "application/json") {
-		status = http.StatusUnsupportedMediaType
-		response = APIResponse{
-			Accepted: false, ErrorCode: "invalid_content_type", Message: "Content-Type must be application/json",
-		}
-	}
 	// #R005: Enforce shared ingest-key authorization.
-	providedKey := strings.TrimSpace(r.Header.Get("X-Manifold-Ingest-Key"))
-	if status == 0 && !h.validator.IsAuthorized(providedKey) {
+	if !h.validator.IsAuthorized(providedKey) {
 		status = http.StatusUnauthorized
 		response = APIResponse{Accepted: false, ErrorCode: "unauthorized", Message: "invalid ingest key"}
 	}
-	// #R010: Enforce body-size bounds and readable JSON payloads.
-	var rawBody []byte
-	if status == 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, int64(h.maxBodyBytes))
-		readBody, readErr := io.ReadAll(r.Body)
-		rawBody = readBody
-		if readErr != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(readErr, &maxErr) {
-				status = http.StatusRequestEntityTooLarge
-				response = APIResponse{Accepted: false, ErrorCode: "payload_too_large", Message: "request body too large"}
-			}
-			if status == 0 {
-				status = http.StatusBadRequest
-				response = APIResponse{Accepted: false, ErrorCode: "invalid_json", Message: "unable to read request body"}
-			}
-		}
-	}
 	// #R015: Validate decoded payload against ingest schema/limits before persistence.
-	var batch BatchRequest
-	// #R020: Map storage-layer outcomes to deterministic API status/error contracts.
-	if status == 0 {
-		decodeErr := json.Unmarshal(rawBody, &batch)
-		if decodeErr != nil {
-			status = http.StatusBadRequest
-			response = APIResponse{Accepted: false, ErrorCode: "invalid_json", Message: "invalid JSON body"}
-		}
-	}
 	if status == 0 {
 		validateErr := ValidateBatch(batch, h.limits)
 		if validateErr != nil {
@@ -95,7 +55,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if status == 0 {
-		persistResult, persistErr := h.store.PersistBatch(r.Context(), batch, rawBody)
+		persistResult, persistErr := h.store.PersistBatch(ctx, batch, rawBody)
 		if persistErr != nil && errors.Is(persistErr, storage.ErrDuplicateBatchConflict) {
 			status = http.StatusConflict
 			response = APIResponse{
@@ -127,6 +87,56 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			logAttrs = []any{"batch_id", persistResult.BatchID, "accepted_event_count", persistResult.AcceptedEventCount}
 		}
+	}
+	return status, response, logAttrs
+}
+
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var status int
+	response := APIResponse{}
+	var logAttrs []any
+	// #R001: Reject unsupported methods and content types before processing.
+	if r.Method != http.MethodPost {
+		status = http.StatusMethodNotAllowed
+		response = APIResponse{Accepted: false, ErrorCode: "method_not_allowed", Message: "method not allowed"}
+	}
+	contentType, _, contentErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if status == 0 && (contentErr != nil || contentType != "application/json") {
+		status = http.StatusUnsupportedMediaType
+		response = APIResponse{
+			Accepted: false, ErrorCode: "invalid_content_type", Message: "Content-Type must be application/json",
+		}
+	}
+	// #R010: Enforce body-size bounds and readable JSON payloads.
+	var rawBody []byte
+	if status == 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, int64(h.maxBodyBytes))
+		readBody, readErr := io.ReadAll(r.Body)
+		rawBody = readBody
+		if readErr != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(readErr, &maxErr) {
+				status = http.StatusRequestEntityTooLarge
+				response = APIResponse{Accepted: false, ErrorCode: "payload_too_large", Message: "request body too large"}
+			}
+			if status == 0 {
+				status = http.StatusBadRequest
+				response = APIResponse{Accepted: false, ErrorCode: "invalid_json", Message: "unable to read request body"}
+			}
+		}
+	}
+	// #R015: Validate decoded payload against ingest schema/limits before persistence.
+	var batch BatchRequest
+	if status == 0 {
+		decodeErr := json.Unmarshal(rawBody, &batch)
+		if decodeErr != nil {
+			status = http.StatusBadRequest
+			response = APIResponse{Accepted: false, ErrorCode: "invalid_json", Message: "invalid JSON body"}
+		}
+	}
+	if status == 0 {
+		providedKey := strings.TrimSpace(r.Header.Get("X-Manifold-Ingest-Key"))
+		status, response, logAttrs = h.ProcessBatch(r.Context(), providedKey, batch, rawBody)
 	}
 	writeErr := writeJSON(w, status, response)
 	if writeErr != nil {

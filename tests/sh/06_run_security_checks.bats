@@ -48,6 +48,16 @@ EOF
   chmod +x "${STUB_BIN}/gitleaks"
 }
 
+make_detect_secrets_stub() {
+  local body="${1:-{\"results\":{}}}"
+  cat > "${STUB_BIN}/detect-secrets" <<EOF
+#!/usr/bin/env bash
+printf '%s' '${body}'
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/detect-secrets"
+}
+
 make_gosec_stub() {
   local body="${1:-{\"Issues\":[]}}"
   cat > "${STUB_BIN}/gosec" <<EOF
@@ -116,6 +126,38 @@ EOF
   chmod +x "${STUB_BIN}/zap-baseline.py"
 }
 
+make_schemathesis_stub() {
+  local exit_code="${1:-0}"
+  cat > "${STUB_BIN}/schemathesis" <<'EOF'
+#!/usr/bin/env bash
+junit_path=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--report-junit-path" ] && [ "$#" -ge 2 ]; then
+    junit_path="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+if [ -n "$junit_path" ]; then
+  printf '%s\n' '<testsuite tests="1" failures="0"></testsuite>' > "$junit_path"
+fi
+printf '%s\n' 'schemathesis stub run'
+exit "${SCHEMATHESIS_STUB_EXIT:-0}"
+EOF
+  chmod +x "${STUB_BIN}/schemathesis"
+  export SCHEMATHESIS_STUB_EXIT="${exit_code}"
+}
+
+make_go_stub() {
+  cat > "${STUB_BIN}/go" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" > "${GO_STUB_LOG_PATH}"
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/go"
+}
+
 setup_fixture() {
   create_repo_fixture
   copy_script_to_fixture "06_run_security_checks.sh"
@@ -135,6 +177,7 @@ teardown() {
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   mkdir -p "${TEST_TMPDIR}/elsewhere"
@@ -156,6 +199,7 @@ teardown() {
 @test "fails fast with installer guidance when shellcheck is missing" {
   #R005
   make_semgrep_stub
+  make_detect_secrets_stub '{"results":{}}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -ne 0 ]
@@ -168,6 +212,7 @@ teardown() {
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" RUN_DAST=false \
@@ -182,6 +227,7 @@ teardown() {
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -190,6 +236,7 @@ teardown() {
   [ -f "${FIXTURE_ROOT}/.security-reports/semgrep.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/shellcheck.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/gitleaks.json" ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/detect-secrets.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/gosec.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/govulncheck.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/sast-summary.json" ]
@@ -200,6 +247,7 @@ teardown() {
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[{"RuleID":"secret"}]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -213,6 +261,7 @@ teardown() {
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   run env RUN_DAST=false GOSEC_EXPECT_ARGS_CONTAIN="-exclude-dir=.gomodcache" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -221,20 +270,62 @@ teardown() {
 }
 
 @test "runs DAST health probe and emits DAST artifacts by default" {
-  #R025 #R030 #R035 #R040
+  #R025 #R030 #R035 #R040 #R050
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
-  run env RUN_SAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"DAST runner resolved to:"* ]]
+  [[ "$output" == *"DAST timeout:"* ]]
+  [[ "$output" == *"DAST report artifact:"* ]]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-health.log" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap-report.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-summary.json" ]
 }
 
+@test "auto-boots service for DAST when enabled" {
+  #R025
+  make_go_stub
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false MANIFOLD_DATABASE_URL="postgres://example" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  [ -f "${TEST_TMPDIR}/go-stub.log" ]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"run ./cmd/manifold"* ]]
+}
+
+@test "runs Schemathesis and writes junit artifact" {
+  #R040
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  make_schemathesis_stub 0
+  mkdir -p "${FIXTURE_ROOT}/openapi"
+  printf '%s\n' 'openapi: 3.0.3' > "${FIXTURE_ROOT}/openapi/manifold.v1.yaml"
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/schemathesis.log" ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/schemathesis-junit.xml" ]
+}
+
+@test "fails DAST gate when Schemathesis reports contract failures" {
+  #R040
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  make_schemathesis_stub 1
+  mkdir -p "${FIXTURE_ROOT}/openapi"
+  printf '%s\n' 'openapi: 3.0.3' > "${FIXTURE_ROOT}/openapi/manifold.v1.yaml"
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=true SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DAST) gate failed"* ]]
+}
+
 @test "skips DAST lane only when explicitly opted out" {
   #R025
-  run env RUN_SAST=false RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"DAST lane skipped."* ]]
@@ -244,7 +335,7 @@ teardown() {
   #R030
   make_curl_stub 1
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
-  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"DAST health probe failed"* ]]
@@ -254,7 +345,7 @@ teardown() {
   #R040
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"00000","instances":[{"uri":"http://127.0.0.1:8080/risky"}]}]}]}' 1
-  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"DAST) gate failed"* ]]
@@ -264,7 +355,7 @@ teardown() {
   #R040
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"10055-13","instances":[{"uri":"http://127.0.0.1:8080/known-noise"}]}]}]}' 1
-  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"DAST) summary"* || "$output" == *"DAST) checks completed."* ]]
@@ -274,7 +365,7 @@ teardown() {
   #R040
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"3","alertRef":"90000","instances":[{"uri":"http://127.0.0.1:9999/off-target"}]}]}]}' 1
-  run env RUN_SAST=false RUN_DAST=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
 }
@@ -282,7 +373,7 @@ teardown() {
 @test "fails DAST lane when no ZAP runner is available" {
   #R035
   make_curl_stub 0
-  run env RUN_SAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${TEST_TMPDIR}/missing-zap-app" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${TEST_TMPDIR}/missing-zap-app" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Missing required command: zap-baseline.py or ZAP.sh"* ]]
@@ -308,7 +399,7 @@ printf '%s' '{"site":[{"alerts":[]}]}' > "$report"
 exit 0
 EOF
   chmod +x "${zap_app_path}/Contents/MacOS/ZAP.sh"
-  run env RUN_SAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${zap_app_path}" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${zap_app_path}" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap-report.json" ]
@@ -319,6 +410,7 @@ EOF
   make_semgrep_stub
   make_shellcheck_stub '[]'
   make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
