@@ -67,14 +67,16 @@ Design: Print lane completion markers and final success output with resolved rep
 Tests:
 - Run with enabled lanes passing and verify final completion line includes `Reports:`.
 
-R050  Statement: Emit live DAST execution context in console output.
-Design: Before running OWASP ZAP, print the resolved runner identity, DAST timeout value, and report artifact path so operators can see what the DAST lane is doing while step-06 runs.
+R050  Statement: Emit live DAST execution context and progress visibility in console output.
+Design: Before running OWASP ZAP, print the resolved runner identity, DAST timeout value, report artifact path, and dedicated live log artifact path; stream ZAP command output to console while simultaneously persisting it to `dast-zap.log` so operators can observe scan progress during execution.
 Tests:
-- Run DAST lane with stubs and verify console output includes runner resolution, timeout, and report artifact lines.
+- Run DAST lane with stubs and verify console output includes runner resolution, timeout, report artifact, and live log artifact lines.
+- Run DAST lane with ZAP CLI fallback and verify invocation includes `-quickprogress` and streamed output is captured in `dast-zap.log`.
 
 ## Changelog
 
 - 2026-05-10: Added default DAST suppression for ZAP daemon UI alert `10062` to avoid deterministic host-runner false positives.
+- 2026-05-10: Added live ZAP progress streaming and `dast-zap.log` artifact requirements for DAST observability.
 - 2026-05-10: Removed `MANIFOLD_DATABASE_URL_1PSA_REF` requirement for DAST auto-boot; DB URL is now composed directly from `localhost_postgres_manifold` fields.
 - 2026-05-10: Added default detect-secrets exclusions for requirements markdown to avoid deterministic documentation-only false positives.
 - 2026-05-10: Removed host/port env references for DAST auto-boot; host/port now come directly from `localhost_postgres_manifold` item fields.

@@ -664,33 +664,36 @@ run_dast_lane() {
     "https://www.zaproxy.org/"
   echo "▶ Running real DAST scan with OWASP ZAP baseline against ${zap_target_url}"
   local zap_report_path="${REPORT_DIR}/dast-zap-report.json"
+  local zap_log_path="${REPORT_DIR}/dast-zap.log"
   #R050: Print DAST execution context so operators can observe live scan behavior.
   echo "▶ DAST runner resolved to: ${zap_runner_cmd} (${zap_runner_mode})"
   echo "▶ DAST timeout: ${DAST_ZAP_TIMEOUT_SECONDS}s"
   echo "▶ DAST report artifact: ${zap_report_path}"
+  echo "▶ DAST live log artifact: ${zap_log_path}"
   local zap_exit=0
   set +e
   if [[ "${zap_runner_mode}" == "baseline" && "${zap_runner_cmd}" == "zap-baseline.py" ]]; then
-    run_with_timeout "${DAST_ZAP_TIMEOUT_SECONDS}" \
+    PYTHONUNBUFFERED=1 run_with_timeout "${DAST_ZAP_TIMEOUT_SECONDS}" \
       zap-baseline.py \
       -t "${zap_target_url}" \
       -J "${zap_report_path}" \
-      -m 1
-    zap_exit=$?
+      -m 1 2>&1 | tee "${zap_log_path}"
+    zap_exit=${PIPESTATUS[0]}
   elif [[ "${zap_runner_mode}" == "baseline" ]]; then
     run_with_timeout "${DAST_ZAP_TIMEOUT_SECONDS}" \
-      python3 "${zap_runner_cmd}" \
+      python3 -u "${zap_runner_cmd}" \
       -t "${zap_target_url}" \
       -J "${zap_report_path}" \
-      -m 1
-    zap_exit=$?
+      -m 1 2>&1 | tee "${zap_log_path}"
+    zap_exit=${PIPESTATUS[0]}
   else
     run_with_timeout "${DAST_ZAP_TIMEOUT_SECONDS}" \
       "${zap_runner_cmd}" \
       -cmd \
       -quickurl "${zap_target_url}" \
-      -quickout "${zap_report_path}"
-    zap_exit=$?
+      -quickout "${zap_report_path}" \
+      -quickprogress 2>&1 | tee "${zap_log_path}"
+    zap_exit=${PIPESTATUS[0]}
   fi
   set -e
 

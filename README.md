@@ -155,6 +155,7 @@ Useful toggles:
 - `RUN_DAST=false` to skip DAST
 - `DAST_AUTO_BOOT=false` to target an already-running service
 - `RUN_SCHEMATHESIS=false` to skip Schemathesis
+- ZAP scan output streams live to console and is also saved to `.security-reports/dast-zap.log`
 
 ## Status And Error Code Notes
 

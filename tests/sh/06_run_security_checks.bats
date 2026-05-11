@@ -377,8 +377,10 @@ EOF
   [[ "$output" == *"DAST runner resolved to:"* ]]
   [[ "$output" == *"DAST timeout:"* ]]
   [[ "$output" == *"DAST report artifact:"* ]]
+  [[ "$output" == *"DAST live log artifact:"* ]]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-health.log" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap-report.json" ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap.log" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-summary.json" ]
 }
 
@@ -484,10 +486,13 @@ EOF
   #R035
   make_curl_stub 0
   local zap_app_path="${TEST_TMPDIR}/Applications/ZAP.app"
+  local zap_cli_args_log="${TEST_TMPDIR}/zap-cli-args.log"
   mkdir -p "${zap_app_path}/Contents/MacOS"
   cat > "${zap_app_path}/Contents/MacOS/ZAP.sh" <<'EOF'
 #!/usr/bin/env bash
 report=""
+all_args="$*"
+printf '%s\n' "${all_args}" > "${ZAP_CLI_ARGS_LOG_PATH}"
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-quickout" ] && [ "$#" -ge 2 ]; then
     report="$2"
@@ -496,14 +501,23 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
+if [[ " ${all_args} " != *" -quickprogress "* ]]; then
+  echo "missing -quickprogress" >&2
+  exit 2
+fi
+echo "Attack complete"
 printf '%s' '{"site":[{"alerts":[]}]}' > "$report"
 exit 0
 EOF
   chmod +x "${zap_app_path}/Contents/MacOS/ZAP.sh"
-  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${zap_app_path}" \
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" ZAP_APP_PATH="${zap_app_path}" ZAP_CLI_ARGS_LOG_PATH="${zap_cli_args_log}" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"Attack complete"* ]]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap-report.json" ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap.log" ]
+  [[ "$(cat "${zap_cli_args_log}")" == *"-quickprogress"* ]]
+  [[ "$(cat "${FIXTURE_ROOT}/.security-reports/dast-zap.log")" == *"Attack complete"* ]]
 }
 
 @test "prints final completion output with report path" {
