@@ -63,9 +63,21 @@ if [ "${1:-}" = "-p" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-f" ]; then
-  case "${2:-}" in
-    localhost_postgres_manifold)
+  case "${2:-}:${3:-}" in
+    localhost_postgres_manifold:password)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
+      ;;
+    localhost_postgres_manifold:host)
+      printf '%s\n' "${ONEPSA_MANIFOLD_HOST-localhost}"
+      ;;
+    localhost_postgres_manifold:port)
+      printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
+      ;;
+    localhost_postgres_manifold:database)
+      printf '%s\n' "${ONEPSA_MANIFOLD_DATABASE-manifold}"
+      ;;
+    localhost_postgres_manifold:schema)
+      printf '%s\n' "${ONEPSA_MANIFOLD_SCHEMA-manifold}"
       ;;
     *)
       exit 1
@@ -122,6 +134,25 @@ setup() {
   run env MANIFOLD_PASSWORD= bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
+}
+
+@test "fails when manifold 1psa host/port/database/schema lookup is empty or invalid" {
+  #R005
+  run env ONEPSA_MANIFOLD_HOST= bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold host from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_PORT=invalid bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold port from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_DATABASE= bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold database from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_SCHEMA= bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold schema from 1psa item"* ]]
 }
 
 @test "fails when psql is unavailable" {
@@ -188,12 +219,14 @@ setup() {
 
 @test "runs SQL unit tests with fail-fast psql options" {
   #R030
-  run bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
+  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 ONEPSA_MANIFOLD_DATABASE=prod ONEPSA_MANIFOLD_SCHEMA=manifold bash "${FIXTURE_ROOT}/05_run_unit_tests.sh"
   [ "$status" -eq 0 ]
-  grep -F -- "-h localhost" "${CALLS_LOG}"
-  grep -F -- "-p 5432" "${CALLS_LOG}"
+  grep -F -- "-h db.internal" "${CALLS_LOG}"
+  grep -F -- "-p 6543" "${CALLS_LOG}"
   grep -F -- "-U manifold" "${CALLS_LOG}"
-  grep -F -- "-d manifold" "${CALLS_LOG}"
+  grep -F -- "-d prod" "${CALLS_LOG}"
+  grep -F -- "schema_name=manifold" "${CALLS_LOG}"
+  grep -F -- "SET search_path TO \"manifold\";" "${CALLS_LOG}"
   grep -F "ON_ERROR_STOP=1" "${CALLS_LOG}"
   grep -F "ingest_schema_pgtap.sql" "${CALLS_LOG}"
 }

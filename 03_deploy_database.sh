@@ -7,7 +7,8 @@ POSTGRES_PSA_ITEM="${POSTGRES_PSA_ITEM:-localhost_postgres_postgres}"
 POSTGRES_PSA_FIELD="${POSTGRES_PSA_FIELD:-password}"
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
 MANIFOLD_PSA_FIELD="${MANIFOLD_PSA_FIELD:-password}"
-DB_NAME="manifold"
+DB_NAME=""
+DB_SCHEMA=""
 POSTGRES_USER="postgres"
 MANIFOLD_USER="manifold"
 
@@ -47,7 +48,18 @@ if [[ ! "${DB_PORT}" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); the
   echo "Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
+DB_NAME="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "database")"
+if [ -z "$DB_NAME" ]; then
+  echo "Failed to resolve manifold database from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_SCHEMA="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "schema")"
+if [ -z "$DB_SCHEMA" ]; then
+  echo "Failed to resolve manifold schema from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
 MANIFOLD_PASSWORD_SQL="${MANIFOLD_PASSWORD//\'/\'\'}"
+DB_SCHEMA_IDENT="\"${DB_SCHEMA//\"/\"\"}\""
 
 #R010: Fail fast when psql client is unavailable.
 if ! command -v psql >/dev/null; then
@@ -85,9 +97,10 @@ if [ "$(run_psql_postgres -d postgres -At -c "SELECT 1 FROM pg_database WHERE da
 else
   run_psql_postgres -d postgres -c "ALTER DATABASE ${DB_NAME} OWNER TO ${MANIFOLD_USER};"
 fi
+run_psql_postgres -d "$DB_NAME" -c "CREATE SCHEMA IF NOT EXISTS ${DB_SCHEMA_IDENT} AUTHORIZATION ${MANIFOLD_USER};"
 
 PGPASSWORD="$MANIFOLD_PASSWORD" \
-  psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$MANIFOLD_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SCHEMA_PATH"
+  psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$MANIFOLD_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "SET search_path TO ${DB_SCHEMA_IDENT};" -f "$SCHEMA_PATH"
 
 #R030: Emit concise operator-readable success output.
 echo "✅ PASS: Applied manifold schema to target database."

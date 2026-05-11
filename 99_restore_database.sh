@@ -7,7 +7,8 @@ set -euo pipefail
 POSTGRES_PSA_ITEM="${POSTGRES_PSA_ITEM:-localhost_postgres_postgres}"
 POSTGRES_PSA_FIELD="${POSTGRES_PSA_FIELD:-password}"
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
-DATABASE_NAME="${DATABASE_NAME:-manifold}"
+DATABASE_NAME=""
+DATABASE_SCHEMA=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="${SCRIPT_DIR}/backups"
@@ -68,7 +69,7 @@ if ! command -v psql >/dev/null 2>&1; then
     exit 1
 fi
 
-#R015: Resolve postgres password plus manifold host/port from 1psa.
+#R015: Resolve postgres password plus manifold host/port/database from 1psa.
 if [ "$POSTGRES_PSA_FIELD" = "password" ]; then
     POSTGRES_PASSWORD="$(1psa -p "$POSTGRES_PSA_ITEM")"
 else
@@ -76,6 +77,8 @@ else
 fi
 DB_HOST="$(1psa -f "$MANIFOLD_PSA_ITEM" "host")"
 DB_PORT="$(1psa -f "$MANIFOLD_PSA_ITEM" "port")"
+DATABASE_NAME="$(1psa -f "$MANIFOLD_PSA_ITEM" "database")"
+DATABASE_SCHEMA="$(1psa -f "$MANIFOLD_PSA_ITEM" "schema")"
 if [ -z "$POSTGRES_PASSWORD" ]; then
     echo "Failed to read postgres password from 1psa item: $POSTGRES_PSA_ITEM"
     exit 1
@@ -88,6 +91,15 @@ if [[ ! "$DB_PORT" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); then
     echo "Failed to read manifold port from 1psa item: $MANIFOLD_PSA_ITEM"
     exit 1
 fi
+if [ -z "$DATABASE_NAME" ]; then
+    echo "Failed to read manifold database from 1psa item: $MANIFOLD_PSA_ITEM"
+    exit 1
+fi
+if [ -z "$DATABASE_SCHEMA" ]; then
+    echo "Failed to read manifold schema from 1psa item: $MANIFOLD_PSA_ITEM"
+    exit 1
+fi
+DATABASE_SCHEMA_SQL="${DATABASE_SCHEMA//\'/\'\'}"
 
 #R005: Default to latest backup when --from is omitted.
 if [ -z "$BACKUP_PATH" ]; then
@@ -113,9 +125,9 @@ fi
 #R025: Refuse full restore when ingest tables already exist in target db.
 database_exists="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -w -h "$DB_HOST" -p "$DB_PORT" -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DATABASE_NAME}';")"
 if [ "$database_exists" = "1" ]; then
-    ingest_exists="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -w -h "$DB_HOST" -p "$DB_PORT" -U postgres -d "$DATABASE_NAME" -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='ingest_batches';")"
+    ingest_exists="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -w -h "$DB_HOST" -p "$DB_PORT" -U postgres -d "$DATABASE_NAME" -tAc "SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' AND c.relname = 'ingest_batches' AND n.nspname = '${DATABASE_SCHEMA_SQL}' LIMIT 1;")"
     if [ "$ingest_exists" = "1" ]; then
-        echo "Database ${DATABASE_NAME} already contains ingest schema objects; refusing restore."
+        echo "Database ${DATABASE_NAME} already contains ingest schema objects in schema ${DATABASE_SCHEMA}; refusing restore."
         exit 1
     fi
 fi

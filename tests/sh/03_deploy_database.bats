@@ -38,6 +38,12 @@ if [ "${1:-}" = "-f" ]; then
     localhost_postgres_manifold:port)
       printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
       ;;
+    localhost_postgres_manifold:database)
+      printf '%s\n' "${ONEPSA_MANIFOLD_DATABASE-manifold}"
+      ;;
+    localhost_postgres_manifold:schema)
+      printf '%s\n' "${ONEPSA_MANIFOLD_SCHEMA-manifold}"
+      ;;
     localhost_postgres_postgres:password)
       printf '%s\n' "${POSTGRES_PASSWORD-postgres-password}"
       ;;
@@ -97,7 +103,7 @@ setup() {
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
 
-@test "fails when manifold 1psa host/port lookup is empty or invalid" {
+@test "fails when manifold 1psa host/port/database/schema lookup is empty or invalid" {
   #R005
   run env ONEPSA_MANIFOLD_HOST= bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -ne 0 ]
@@ -106,6 +112,14 @@ setup() {
   run env ONEPSA_MANIFOLD_PORT=invalid bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold port from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_DATABASE= bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold database from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_SCHEMA= bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold schema from 1psa item"* ]]
 }
 
 @test "fails when psql is unavailable" {
@@ -135,13 +149,15 @@ setup() {
 
 @test "applies schema using fail-fast psql flags and 1psa credentials" {
   #R025
-  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 bash "${FIXTURE_ROOT}/03_deploy_database.sh"
+  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 ONEPSA_MANIFOLD_DATABASE=prod ONEPSA_MANIFOLD_SCHEMA=manifold bash "${FIXTURE_ROOT}/03_deploy_database.sh"
   [ "$status" -eq 0 ]
   grep -F -- "-U postgres" "${CALLS_LOG}"
   grep -F -- "-h db.internal" "${CALLS_LOG}"
   grep -F -- "-p 6543" "${CALLS_LOG}"
   grep -F -- "-U manifold" "${CALLS_LOG}"
-  grep -F -- "-d manifold" "${CALLS_LOG}"
+  grep -F -- "-d prod" "${CALLS_LOG}"
+  grep -F -- "CREATE SCHEMA IF NOT EXISTS \"manifold\" AUTHORIZATION manifold;" "${CALLS_LOG}"
+  grep -F -- "SET search_path TO \"manifold\";" "${CALLS_LOG}"
   grep -F "ON_ERROR_STOP=1" "${CALLS_LOG}"
   grep -F "storage/schema.sql" "${CALLS_LOG}"
 }

@@ -5,10 +5,11 @@ set -euo pipefail
 #R005: Resolve manifold credential from dedicated 1psa item.
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
 MANIFOLD_PSA_FIELD="${MANIFOLD_PSA_FIELD:-password}"
-DB_HOST="localhost"
-DB_PORT="5432"
-DB_NAME="manifold"
+DB_HOST=""
+DB_PORT=""
+DB_NAME=""
 DB_USER="manifold"
+DB_SCHEMA=""
 
 if ! command -v 1psa >/dev/null; then
   echo "1psa is required but was not found on PATH."
@@ -30,6 +31,27 @@ if [ -z "$DB_PASSWORD" ]; then
   echo "Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
+DB_HOST="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "host")"
+if [ -z "$DB_HOST" ]; then
+  echo "Failed to resolve manifold host from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_PORT="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "port")"
+if [[ ! "${DB_PORT}" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); then
+  echo "Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_NAME="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "database")"
+if [ -z "$DB_NAME" ]; then
+  echo "Failed to resolve manifold database from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_SCHEMA="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "schema")"
+if [ -z "$DB_SCHEMA" ]; then
+  echo "Failed to resolve manifold schema from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_SCHEMA_IDENT="\"${DB_SCHEMA//\"/\"\"}\""
 
 #R010: Refuse SQL unit tests when psql is unavailable.
 if ! command -v psql >/dev/null; then
@@ -65,7 +87,7 @@ PGPASSWORD="$DB_PASSWORD" \
 
 #R030: Execute SQL unit tests first with fail-fast psql settings.
 PGPASSWORD="$DB_PASSWORD" \
-  psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SQL_TEST_FILE"
+  psql -w -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -v schema_name="$DB_SCHEMA" -c "SET search_path TO ${DB_SCHEMA_IDENT};" -f "$SQL_TEST_FILE"
 
 #R030: Run Go unit tests only after SQL unit tests pass.
 GO_TEST_OUTPUT_FILE="$(mktemp)"

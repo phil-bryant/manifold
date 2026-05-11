@@ -5,8 +5,8 @@ set -eu
 #R005: Resolve manifold credential from dedicated 1psa item.
 MANIFOLD_PSA_ITEM="${MANIFOLD_PSA_ITEM:-localhost_postgres_manifold}"
 MANIFOLD_PSA_FIELD="${MANIFOLD_PSA_FIELD:-password}"
-DB_NAME="manifold"
 DB_USER="manifold"
+DB_SCHEMA=""
 
 if ! command -v 1psa >/dev/null; then
   echo "❌ FAIL: 1psa is required but was not found on PATH."
@@ -40,6 +40,17 @@ case "$DB_PORT" in
     exit 1
     ;;
 esac
+DB_NAME="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "database")"
+if [ -z "$DB_NAME" ]; then
+  echo "❌ FAIL: Failed to resolve manifold database from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_SCHEMA="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "schema")"
+if [ -z "$DB_SCHEMA" ]; then
+  echo "❌ FAIL: Failed to resolve manifold schema from 1psa item: ${MANIFOLD_PSA_ITEM}"
+  exit 1
+fi
+DB_SCHEMA_SQL="${DB_SCHEMA//\'/\'\'}"
 
 #R010: Refuse verification when psql is unavailable.
 if ! command -v psql >/dev/null; then
@@ -72,7 +83,7 @@ comma_join_lines() {
   printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
 }
 
-echo "🔎 Verifying manifold database schema on ${DB_HOST}:${DB_PORT}/${DB_NAME} as ${DB_USER}..."
+echo "🔎 Verifying manifold database schema on ${DB_HOST}:${DB_PORT}/${DB_NAME} (schema=${DB_SCHEMA}) as ${DB_USER}..."
 
 #R015: Verify required ingest tables exist.
 echo "- checking required tables..."
@@ -84,7 +95,7 @@ missing_tables="$(
     SELECT expected.table_name
     FROM expected
     LEFT JOIN information_schema.tables tables
-      ON tables.table_schema = 'public'
+      ON tables.table_schema = '${DB_SCHEMA_SQL}'
      AND tables.table_name = expected.table_name
      AND tables.table_type = 'BASE TABLE'
     WHERE tables.table_name IS NULL
@@ -111,7 +122,7 @@ missing_indexes="$(
     SELECT expected.index_name
     FROM expected
     LEFT JOIN pg_indexes idx
-      ON idx.schemaname = 'public'
+      ON idx.schemaname = '${DB_SCHEMA_SQL}'
      AND idx.tablename = 'ingest_events'
      AND idx.indexname = expected.index_name
     WHERE idx.indexname IS NULL
@@ -139,9 +150,9 @@ if [ "$(db_scalar "
     JOIN pg_namespace parent_ns
       ON parent_ns.oid = parent_rel.relnamespace
     WHERE con.contype = 'f'
-      AND child_ns.nspname = 'public'
+      AND child_ns.nspname = '${DB_SCHEMA_SQL}'
       AND child_rel.relname = 'ingest_events'
-      AND parent_ns.nspname = 'public'
+      AND parent_ns.nspname = '${DB_SCHEMA_SQL}'
       AND parent_rel.relname = 'ingest_batches'
   );
 ")" != "t" ]; then

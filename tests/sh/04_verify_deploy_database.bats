@@ -63,6 +63,12 @@ if [ "${1:-}" = "-f" ]; then
     localhost_postgres_manifold:port)
       printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
       ;;
+    localhost_postgres_manifold:database)
+      printf '%s\n' "${ONEPSA_MANIFOLD_DATABASE-manifold}"
+      ;;
+    localhost_postgres_manifold:schema)
+      printf '%s\n' "${ONEPSA_MANIFOLD_SCHEMA-manifold}"
+      ;;
     localhost_postgres_manifold:password)
       printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
       ;;
@@ -119,7 +125,7 @@ EOF
   [[ "$output" == *"Failed to resolve manifold password from 1psa item"* ]]
 }
 
-@test "fails when manifold 1psa host/port lookup is empty or invalid" {
+@test "fails when manifold 1psa host/port/database/schema lookup is empty or invalid" {
   #R005
   run env ONEPSA_MANIFOLD_HOST= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
@@ -128,6 +134,14 @@ EOF
   run env ONEPSA_MANIFOLD_PORT=bad sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Failed to resolve manifold port from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_DATABASE= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold database from 1psa item"* ]]
+
+  run env ONEPSA_MANIFOLD_SCHEMA= sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to resolve manifold schema from 1psa item"* ]]
 }
 
 @test "fails when psql is unavailable" {
@@ -180,15 +194,16 @@ EOF
   [ "$(printf '%s' "$output" | grep -c "✅ PASS:")" -eq 1 ]
 }
 
-@test "uses fail-fast psql options with fixed local target and manifold user" {
+@test "uses fail-fast psql options with 1psa target and manifold user" {
   #R035
   : > "${PSQL_LOG}"
   make_psql_happy
-  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
+  run env ONEPSA_MANIFOLD_HOST=db.internal ONEPSA_MANIFOLD_PORT=6543 ONEPSA_MANIFOLD_DATABASE=manifold_verify ONEPSA_MANIFOLD_SCHEMA=manifold_data sh "${FIXTURE_ROOT}/04_verify_deploy_database.sh"
   [ "$status" -eq 0 ]
   grep -F -- "-h db.internal" "${PSQL_LOG}"
   grep -F -- "-p 6543" "${PSQL_LOG}"
   grep -F -- "-U manifold" "${PSQL_LOG}"
-  grep -F -- "-d manifold" "${PSQL_LOG}"
+  grep -F -- "-d manifold_verify" "${PSQL_LOG}"
+  grep -F -- "table_schema = 'manifold_data'" "${PSQL_LOG}"
   grep -F "ON_ERROR_STOP=1" "${PSQL_LOG}"
 }

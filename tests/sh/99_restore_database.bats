@@ -29,6 +29,14 @@ if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port
   echo "5432"
   exit 0
 fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "database" ]; then
+  echo "manifold"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "schema" ]; then
+  echo "manifold"
+  exit 0
+fi
 exit 1
 EOF
   chmod +x "${STUB_BIN}/1psa"
@@ -59,6 +67,14 @@ if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "host
 fi
 if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port" ]; then
   echo "6543"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "database" ]; then
+  echo "manifold"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "schema" ]; then
+  echo "manifold"
   exit 0
 fi
 exit 1
@@ -106,6 +122,14 @@ if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port
   echo "5432"
   exit 0
 fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "database" ]; then
+  echo "manifold"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "schema" ]; then
+  echo "manifold"
+  exit 0
+fi
 exit 1
 EOF
   chmod +x "${STUB_BIN}/1psa"
@@ -136,6 +160,14 @@ if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port
   echo "5432"
   exit 0
 fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "database" ]; then
+  echo "manifold"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "schema" ]; then
+  echo "manifold"
+  exit 0
+fi
 exit 1
 EOF
   chmod +x "${STUB_BIN}/1psa"
@@ -143,7 +175,7 @@ EOF
 #!/usr/bin/env bash
 if [[ "$*" == *"SELECT 1 FROM pg_database"* ]]; then
   echo "1"
-elif [[ "$*" == *"table_name='ingest_batches'"* ]]; then
+elif [[ "$*" == *"c.relname = 'ingest_batches'"* ]] && [[ "$*" == *"n.nspname = 'manifold'"* ]]; then
   echo "1"
 fi
 exit 0
@@ -173,6 +205,14 @@ if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "host
 fi
 if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "port" ]; then
   echo "6543"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "database" ]; then
+  echo "manifold"
+  exit 0
+fi
+if [ "$1" = "-f" ] && [ "$2" = "localhost_postgres_manifold" ] && [ "$3" = "schema" ]; then
+  echo "manifold"
   exit 0
 fi
 exit 1

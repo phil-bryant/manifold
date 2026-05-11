@@ -57,7 +57,7 @@ To provision manually:
 `03_deploy_database.sh` uses `1psa` items:
 
 - `localhost_postgres_postgres` for postgres admin password
-- `localhost_postgres_manifold` for manifold user password and target `host`/`port` fields
+- `localhost_postgres_manifold` for manifold user password and target `host`/`port`/`database`/`schema` fields
 
 `05_run_unit_tests.sh` runs pgTAP SQL unit tests first, then `go test ./...`.
 Security/dependency check reports are written to `.security-reports/` and are intentionally ignored by Git.
@@ -73,11 +73,11 @@ Operational database lifecycle scripts:
 Credential and target resolution for `97/98/99`:
 
 - postgres admin credential value: `localhost_postgres_postgres` (default credential field)
-- database host/port: `localhost_postgres_manifold` fields `host` and `port`
+- database host/port/name/schema: `localhost_postgres_manifold` fields `host`, `port`, `database`, and `schema`
 
 Safety behavior:
 
-- `99_restore_database.sh` refuses restore if `public.ingest_batches` already exists in the target DB
+- `99_restore_database.sh` refuses restore if `ingest_batches` already exists in the configured target schema in the target DB
 - restore requires the matching globals file (`<dump>_globals.sql`)
 
 ## Ingest API

@@ -4,7 +4,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM information_schema.tables
-    WHERE table_schema = 'public'
+    WHERE table_schema = :'schema_name'
       AND table_name = 'ingest_batches'
       AND table_type = 'BASE TABLE'
   ),
@@ -15,7 +15,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM information_schema.tables
-    WHERE table_schema = 'public'
+    WHERE table_schema = :'schema_name'
       AND table_name = 'ingest_events'
       AND table_type = 'BASE TABLE'
   ),
@@ -26,7 +26,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname = 'public'
+    WHERE schemaname = :'schema_name'
       AND tablename = 'ingest_events'
       AND indexname = 'idx_ingest_events_timestamp'
   ),
@@ -37,7 +37,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname = 'public'
+    WHERE schemaname = :'schema_name'
       AND tablename = 'ingest_events'
       AND indexname = 'idx_ingest_events_event_name'
   ),
@@ -48,7 +48,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname = 'public'
+    WHERE schemaname = :'schema_name'
       AND tablename = 'ingest_events'
       AND indexname = 'idx_ingest_events_component'
   ),
@@ -59,7 +59,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname = 'public'
+    WHERE schemaname = :'schema_name'
       AND tablename = 'ingest_events'
       AND indexname = 'idx_ingest_events_install_id'
   ),
@@ -79,9 +79,9 @@ SELECT ok(
     JOIN pg_namespace parent_ns
       ON parent_ns.oid = parent_rel.relnamespace
     WHERE con.contype = 'f'
-      AND child_ns.nspname = 'public'
+      AND child_ns.nspname = :'schema_name'
       AND child_rel.relname = 'ingest_events'
-      AND parent_ns.nspname = 'public'
+      AND parent_ns.nspname = :'schema_name'
       AND parent_rel.relname = 'ingest_batches'
   ),
   'ingest_events references ingest_batches'
@@ -91,7 +91,7 @@ SELECT ok(
   EXISTS (
     SELECT 1
     FROM information_schema.columns
-    WHERE table_schema = 'public'
+    WHERE table_schema = :'schema_name'
       AND table_name = 'ingest_batches'
       AND column_name = 'raw_json'
       AND data_type = 'jsonb'
