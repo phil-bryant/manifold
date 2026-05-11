@@ -5,3 +5,4 @@ bin/*
 .gocache/
 .gomodcache/
 .security-reports/
+backups
