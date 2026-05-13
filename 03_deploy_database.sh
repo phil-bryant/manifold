@@ -27,33 +27,46 @@ read_1psa_secret() {
   fi
 }
 
+# One 1psa round-trip per item. Sequential 1psa -f/-p calls each pay ~2s to 1Password.
 POSTGRES_PASSWORD="$(read_1psa_secret "$POSTGRES_PSA_ITEM" "$POSTGRES_PSA_FIELD")"
 if [ -z "$POSTGRES_PASSWORD" ]; then
   echo "Failed to resolve postgres password from 1psa item: ${POSTGRES_PSA_ITEM}"
   exit 1
 fi
 
-MANIFOLD_PASSWORD="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "$MANIFOLD_PSA_FIELD")"
+MANIFOLD_PASSWORD=""
+DB_HOST=""
+DB_PORT=""
+DB_NAME=""
+DB_SCHEMA=""
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -z "$line" ] && continue
+  key="${line%%=*}"
+  val="${line#*=}"
+  case "$key" in
+    password) MANIFOLD_PASSWORD="$val" ;;
+    host) DB_HOST="$val" ;;
+    port) DB_PORT="$val" ;;
+    database) DB_NAME="$val" ;;
+    schema) DB_SCHEMA="$val" ;;
+  esac
+done < <(1psa -m "$MANIFOLD_PSA_ITEM" password host port database schema)
 if [ -z "$MANIFOLD_PASSWORD" ]; then
   echo "Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_HOST="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "host")"
 if [ -z "$DB_HOST" ]; then
   echo "Failed to resolve manifold host from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_PORT="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "port")"
 if [[ ! "${DB_PORT}" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); then
   echo "Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_NAME="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "database")"
 if [ -z "$DB_NAME" ]; then
   echo "Failed to resolve manifold database from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_SCHEMA="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "schema")"
 if [ -z "$DB_SCHEMA" ]; then
   echo "Failed to resolve manifold schema from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1

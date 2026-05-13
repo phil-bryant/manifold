@@ -16,37 +16,39 @@ if ! command -v 1psa >/dev/null; then
   exit 1
 fi
 
-read_1psa_secret() {
-  local item="$1"
-  local field="$2"
-  if [ "$field" = "password" ]; then
-    1psa -p "$item"
-  else
-    1psa -f "$item" "$field"
-  fi
-}
-
-DB_PASSWORD="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "$MANIFOLD_PSA_FIELD")"
+DB_PASSWORD=""
+DB_HOST=""
+DB_PORT=""
+DB_NAME=""
+DB_SCHEMA=""
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -z "$line" ] && continue
+  key="${line%%=*}"
+  val="${line#*=}"
+  case "$key" in
+    password) DB_PASSWORD="$val" ;;
+    host) DB_HOST="$val" ;;
+    port) DB_PORT="$val" ;;
+    database) DB_NAME="$val" ;;
+    schema) DB_SCHEMA="$val" ;;
+  esac
+done < <(1psa -m "$MANIFOLD_PSA_ITEM" password host port database schema)
 if [ -z "$DB_PASSWORD" ]; then
   echo "Failed to resolve manifold password from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_HOST="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "host")"
 if [ -z "$DB_HOST" ]; then
   echo "Failed to resolve manifold host from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_PORT="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "port")"
 if [[ ! "${DB_PORT}" =~ ^[0-9]+$ ]] || (( DB_PORT < 1 || DB_PORT > 65535 )); then
   echo "Failed to resolve manifold port from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_NAME="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "database")"
 if [ -z "$DB_NAME" ]; then
   echo "Failed to resolve manifold database from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1
 fi
-DB_SCHEMA="$(read_1psa_secret "$MANIFOLD_PSA_ITEM" "schema")"
 if [ -z "$DB_SCHEMA" ]; then
   echo "Failed to resolve manifold schema from 1psa item: ${MANIFOLD_PSA_ITEM}"
   exit 1

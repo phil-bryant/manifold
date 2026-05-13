@@ -44,38 +44,28 @@ PY
 make_1psa_stub() {
   cat > "${STUB_BIN}/1psa" <<'EOF'
 #!/usr/bin/env bash
-if [ "${1:-}" = "-p" ]; then
-  case "${2:-}" in
-    localhost_postgres_manifold)
-      printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
-      ;;
-    *)
-      exit 1
-      ;;
+if [ "${1:-}" = "-m" ]; then
+  item="${2:-}"
+  shift 2
+  case "$item" in
+    localhost_postgres_manifold) ;;
+    *) exit 1 ;;
   esac
-  exit 0
-fi
-if [ "${1:-}" = "-f" ]; then
-  case "${2:-}:${3:-}" in
-    localhost_postgres_manifold:host)
-      printf '%s\n' "${ONEPSA_MANIFOLD_HOST-localhost}"
-      ;;
-    localhost_postgres_manifold:port)
-      printf '%s\n' "${ONEPSA_MANIFOLD_PORT-5432}"
-      ;;
-    localhost_postgres_manifold:database)
-      printf '%s\n' "${ONEPSA_MANIFOLD_DATABASE-manifold}"
-      ;;
-    localhost_postgres_manifold:schema)
-      printf '%s\n' "${ONEPSA_MANIFOLD_SCHEMA-manifold}"
-      ;;
-    localhost_postgres_manifold:password)
-      printf '%s\n' "${MANIFOLD_PASSWORD-manifold-password}"
-      ;;
-    *)
-      exit 1
-      ;;
-  esac
+  password="${MANIFOLD_PASSWORD-manifold-password}"
+  host="${ONEPSA_MANIFOLD_HOST-localhost}"
+  port="${ONEPSA_MANIFOLD_PORT-5432}"
+  database="${ONEPSA_MANIFOLD_DATABASE-manifold}"
+  schema="${ONEPSA_MANIFOLD_SCHEMA-manifold}"
+  for field in "$@"; do
+    case "$field" in
+      password) printf 'password=%s\n' "$password" ;;
+      host) printf 'host=%s\n' "$host" ;;
+      port) printf 'port=%s\n' "$port" ;;
+      database) printf 'database=%s\n' "$database" ;;
+      schema) printf 'schema=%s\n' "$schema" ;;
+      *) exit 1 ;;
+    esac
+  done
   exit 0
 fi
 exit 1
