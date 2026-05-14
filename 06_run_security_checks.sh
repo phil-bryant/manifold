@@ -12,14 +12,16 @@ RUN_DAST="${RUN_DAST:-true}"
 FAIL_ON_HIGH_CRITICAL="${SECURITY_FAIL_ON_HIGH_CRITICAL:-true}"
 DETECT_SECRETS_EXCLUDE_FILES_REGEX="${DETECT_SECRETS_EXCLUDE_FILES_REGEX:-(^|/)\\.gomodcache/|(^|/)requirements/.*-requirements\\.md$}"
 DETECT_SECRETS_FORCE_ALL_PLUGINS="${DETECT_SECRETS_FORCE_ALL_PLUGINS:-false}"
-DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:8080}"
+DAST_BASE_URL="${DAST_BASE_URL:-http://127.0.0.1:18080}"
 DAST_ZAP_TARGET_URL="${DAST_ZAP_TARGET_URL:-${DAST_BASE_URL}}"
+DAST_ZAP_PROXY_PORT="${DAST_ZAP_PROXY_PORT:-58080}"
 ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
 DAST_IGNORED_ALERT_REFS="${DAST_IGNORED_ALERT_REFS:-10055-13,10062}"
 DAST_HEALTH_PROBE_TIMEOUT_SECONDS="${DAST_HEALTH_PROBE_TIMEOUT_SECONDS:-5}"
 DAST_ZAP_TIMEOUT_SECONDS="${DAST_ZAP_TIMEOUT_SECONDS:-180}"
 DAST_AUTO_BOOT="${DAST_AUTO_BOOT:-true}"
 DAST_AUTO_BOOT_TIMEOUT_SECONDS="${DAST_AUTO_BOOT_TIMEOUT_SECONDS:-30}"
+DAST_AUTO_BOOT_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY:-${MANIFOLD_INGEST_KEY:-local-ingest-key}}"
 RUN_SCHEMATHESIS="${RUN_SCHEMATHESIS:-true}"
 SCHEMATHESIS_SCHEMA_PATH="${SCHEMATHESIS_SCHEMA_PATH:-${SCRIPT_DIR}/openapi/manifold.v1.yaml}"
 SCHEMATHESIS_TIMEOUT_SECONDS="${SCHEMATHESIS_TIMEOUT_SECONDS:-180}"
@@ -30,6 +32,8 @@ MANIFOLD_DATABASE_NAME="${MANIFOLD_DATABASE_NAME:-manifold}"
 MANIFOLD_DATABASE_SSLMODE="${MANIFOLD_DATABASE_SSLMODE:-disable}"
 
 DAST_APP_PID=""
+DAST_APP_PGID=""
+SCRIPT_PGID="$(ps -o pgid= $$ | tr -d ' ')"
 
 if [[ "${REPORT_DIR}" != /* ]]; then
   REPORT_DIR="${SCRIPT_DIR}/${REPORT_DIR#./}"
@@ -38,10 +42,15 @@ fi
 mkdir -p "$REPORT_DIR"
 
 cleanup_dast_app() {
+  if [[ -n "${DAST_APP_PGID}" ]] && [[ "${DAST_APP_PGID}" != "${SCRIPT_PGID}" ]]; then
+    kill -TERM "-${DAST_APP_PGID}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${DAST_APP_PID}" ]] && kill -0 "${DAST_APP_PID}" >/dev/null 2>&1; then
     kill "${DAST_APP_PID}" >/dev/null 2>&1 || true
     wait "${DAST_APP_PID}" >/dev/null 2>&1 || true
   fi
+  DAST_APP_PID=""
+  DAST_APP_PGID=""
 }
 
 trap cleanup_dast_app EXIT
@@ -152,7 +161,7 @@ except subprocess.TimeoutExpired:
 PY
 }
 
-resolve_dast_bind_address() {
+resolve_dast_bind_parts() {
   python3 - "$1" <<'PY'
 import sys
 from urllib.parse import urlparse
@@ -162,8 +171,84 @@ host = parsed.hostname or ""
 if not host:
     raise SystemExit(1)
 port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
-print(f"{host}:{port}")
+print(f"{host}\t{port}")
 PY
+}
+
+assert_bind_address_available() {
+  local host="$1"
+  local port="$2"
+  set +e
+  python3 - "${host}" "${port}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+
+addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+last_errno = None
+for family, socktype, proto, _canonname, sockaddr in addrinfos:
+    sock = socket.socket(family, socktype, proto)
+    try:
+        sock.bind(sockaddr)
+    except OSError as exc:
+        last_errno = exc.errno
+        if exc.errno == 98:  # Linux EADDRINUSE
+            raise SystemExit(3)
+        if exc.errno == 48:  # macOS EADDRINUSE
+            raise SystemExit(3)
+        if exc.errno == 99:  # Linux EADDRNOTAVAIL
+            raise SystemExit(4)
+        if exc.errno == 49:  # macOS EADDRNOTAVAIL
+            raise SystemExit(4)
+        continue
+    finally:
+        sock.close()
+    raise SystemExit(0)
+
+if last_errno in {98, 48}:
+    raise SystemExit(3)
+if last_errno in {99, 49}:
+    raise SystemExit(4)
+raise SystemExit(5)
+PY
+  local bind_check_exit=$?
+  set -e
+
+  if [[ "${bind_check_exit}" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${bind_check_exit}" -eq 3 ]]; then
+    echo "❌ DAST auto-boot bind address is already in use: ${host}:${port}"
+    if command -v lsof >/dev/null 2>&1; then
+      echo "ℹ️  Existing listeners on TCP:${port}:"
+      lsof -nP -iTCP:"${port}" -sTCP:LISTEN || true
+    fi
+    echo "Set DAST_BASE_URL to an available host:port and rerun."
+    return 1
+  fi
+  if [[ "${bind_check_exit}" -eq 4 ]]; then
+    echo "❌ DAST auto-boot bind address is not available on this machine: ${host}:${port}"
+    echo "Set DAST_BASE_URL to a local reachable host:port and rerun."
+    return 1
+  fi
+  echo "❌ Unable to validate DAST auto-boot bind address: ${host}:${port}"
+  return 1
+}
+
+assert_bind_port_available() {
+  local host="127.0.0.1"
+  local port="$1"
+  if [[ ! "${port}" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    echo "❌ DAST_ZAP_PROXY_PORT must be an integer between 1 and 65535: ${port}"
+    return 1
+  fi
+  if ! assert_bind_address_available "${host}" "${port}"; then
+    echo "Choose a free DAST_ZAP_PROXY_PORT and rerun."
+    return 1
+  fi
+  return 0
 }
 
 wait_for_healthz() {
@@ -564,6 +649,7 @@ run_dast_lane() {
 
   require_command curl
   require_command python3
+  local dast_app_log_path="${REPORT_DIR}/dast-app.log"
   if [[ "${RUN_SCHEMATHESIS}" == "true" ]]; then
     require_command schemathesis
   fi
@@ -575,9 +661,13 @@ run_dast_lane() {
       echo "❌ Failed to compose MANIFOLD_DATABASE_URL from 1psa fields."
       exit 1
     fi
-    local dast_bind_addr=""
-    if ! dast_bind_addr="$(resolve_dast_bind_address "${DAST_BASE_URL}")"; then
+    local dast_bind_host=""
+    local dast_bind_port=""
+    if ! IFS=$'\t' read -r dast_bind_host dast_bind_port <<< "$(resolve_dast_bind_parts "${DAST_BASE_URL}")"; then
       echo "❌ Unable to derive bind address from DAST_BASE_URL: ${DAST_BASE_URL}"
+      exit 1
+    fi
+    if ! assert_bind_address_available "${dast_bind_host}" "${dast_bind_port}"; then
       exit 1
     fi
     print_tool_header \
@@ -586,8 +676,13 @@ run_dast_lane() {
       "Uses MANIFOLD_ADDR from DAST_BASE_URL and DB URL/host/port from 1psa." \
       "https://go.dev/"
     echo "▶ Auto-booting manifold service for DAST at ${DAST_BASE_URL}"
-    MANIFOLD_ADDR="${dast_bind_addr}" MANIFOLD_DATABASE_URL="${database_url}" go run ./cmd/manifold > "${REPORT_DIR}/dast-app.log" 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+      MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" setsid go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
+    else
+      MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
+    fi
     DAST_APP_PID="$!"
+    DAST_APP_PGID="$(ps -o pgid= "${DAST_APP_PID}" | tr -d ' ')"
   fi
   local zap_runner_cmd=""
   local zap_runner_mode=""
@@ -615,6 +710,11 @@ run_dast_lane() {
   fi
   if ! wait_for_healthz "${DAST_BASE_URL}" "${health_timeout_seconds}"; then
     echo "❌ DAST health probe failed: ${DAST_BASE_URL}/healthz"
+    if [[ -f "${dast_app_log_path}" ]]; then
+      echo "ℹ️  Auto-boot startup log: ${dast_app_log_path}"
+      echo "ℹ️  Last startup log lines:"
+      tail -n 20 "${dast_app_log_path}" || true
+    fi
     exit 1
   fi
 
@@ -656,6 +756,20 @@ run_dast_lane() {
 
   #R035: Execute OWASP ZAP baseline via host-native zap-baseline.py.
   local zap_target_url="${DAST_ZAP_TARGET_URL}"
+  local zap_target_host=""
+  local zap_target_port=""
+  if ! IFS=$'\t' read -r zap_target_host zap_target_port <<< "$(resolve_dast_bind_parts "${zap_target_url}")"; then
+    echo "❌ Unable to derive host/port from DAST_ZAP_TARGET_URL: ${zap_target_url}"
+    exit 1
+  fi
+  if ! assert_bind_port_available "${DAST_ZAP_PROXY_PORT}"; then
+    exit 1
+  fi
+  if [[ "${zap_target_host}" == "127.0.0.1" || "${zap_target_host}" == "localhost" ]] && [[ "${zap_target_port}" == "${DAST_ZAP_PROXY_PORT}" ]]; then
+    echo "❌ DAST_ZAP_PROXY_PORT (${DAST_ZAP_PROXY_PORT}) conflicts with DAST_ZAP_TARGET_URL (${zap_target_url})."
+    echo "Set DAST_ZAP_PROXY_PORT to a different local port and rerun."
+    exit 1
+  fi
 
   print_tool_header \
     "OWASP ZAP Baseline" \
@@ -668,6 +782,7 @@ run_dast_lane() {
   #R050: Print DAST execution context so operators can observe live scan behavior.
   echo "▶ DAST runner resolved to: ${zap_runner_cmd} (${zap_runner_mode})"
   echo "▶ DAST timeout: ${DAST_ZAP_TIMEOUT_SECONDS}s"
+  echo "▶ DAST ZAP proxy port: ${DAST_ZAP_PROXY_PORT}"
   echo "▶ DAST report artifact: ${zap_report_path}"
   echo "▶ DAST live log artifact: ${zap_log_path}"
   local zap_exit=0
@@ -677,6 +792,7 @@ run_dast_lane() {
       zap-baseline.py \
       -t "${zap_target_url}" \
       -J "${zap_report_path}" \
+      -z "-port ${DAST_ZAP_PROXY_PORT}" \
       -m 1 2>&1 | tee "${zap_log_path}"
     zap_exit=${PIPESTATUS[0]}
   elif [[ "${zap_runner_mode}" == "baseline" ]]; then
@@ -684,12 +800,14 @@ run_dast_lane() {
       python3 -u "${zap_runner_cmd}" \
       -t "${zap_target_url}" \
       -J "${zap_report_path}" \
+      -z "-port ${DAST_ZAP_PROXY_PORT}" \
       -m 1 2>&1 | tee "${zap_log_path}"
     zap_exit=${PIPESTATUS[0]}
   else
     run_with_timeout "${DAST_ZAP_TIMEOUT_SECONDS}" \
       "${zap_runner_cmd}" \
       -cmd \
+      -port "${DAST_ZAP_PROXY_PORT}" \
       -quickurl "${zap_target_url}" \
       -quickout "${zap_report_path}" \
       -quickprogress 2>&1 | tee "${zap_log_path}"
@@ -819,9 +937,13 @@ if gate_failed:
 PY
   if [[ -n "${DAST_APP_PID}" ]] && kill -0 "${DAST_APP_PID}" >/dev/null 2>&1; then
     echo "▶ Stopping auto-booted manifold service after DAST"
+    if [[ -n "${DAST_APP_PGID}" ]] && [[ "${DAST_APP_PGID}" != "${SCRIPT_PGID}" ]]; then
+      kill -TERM "-${DAST_APP_PGID}" >/dev/null 2>&1 || true
+    fi
     kill "${DAST_APP_PID}" >/dev/null 2>&1 || true
     wait "${DAST_APP_PID}" >/dev/null 2>&1 || true
     DAST_APP_PID=""
+    DAST_APP_PGID=""
   fi
   echo "✅ Dynamic Application Security Testing (DAST) checks completed."
 }

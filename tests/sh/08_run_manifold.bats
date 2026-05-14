@@ -84,9 +84,11 @@ EOF
   #R010
   make_go_stub
   make_1psa_stub
+  # pragma: allowlist nextline secret
   run env ONEPSA_DATABASE_USERNAME_VALUE="user+name" ONEPSA_DATABASE_PASSWORD_VALUE="pa:ss@word" ONEPSA_DATABASE_HOST_VALUE="db.internal" ONEPSA_DATABASE_PORT_VALUE="6543" ONEPSA_DATABASE_NAME_VALUE="manifold_prod" PATH="${PATH}" \
     bash "${FIXTURE_ROOT}/08_run_manifold.sh"
   [ "$status" -eq 0 ]
+  # pragma: allowlist nextline secret
   run grep -F "MANIFOLD_DATABASE_URL=postgres://user%2Bname:pa%3Ass%40word@db.internal:6543/manifold_prod?sslmode=disable" "${CALLS_LOG}"
   [ "$status" -eq 0 ]
 }
@@ -134,6 +136,6 @@ EOF
   [ "$status" -eq 0 ]
   run grep -F "MANIFOLD_ADDR=127.0.0.1:9090" "${CALLS_LOG}"
   [ "$status" -eq 0 ]
-  run grep -F "MANIFOLD_INGEST_KEY=from-env-key" "${CALLS_LOG}"
+  run grep -F "MANIFOLD_INGEST_KEY=from-env-key" "${CALLS_LOG}"  # pragma: allowlist secret
   [ "$status" -eq 0 ]
 }

@@ -162,7 +162,10 @@ make_go_stub() {
   cat > "${STUB_BIN}/go" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "${GO_STUB_LOG_PATH}"
+printf '%s\n' "MANIFOLD_ADDR=${MANIFOLD_ADDR:-}" >> "${GO_STUB_LOG_PATH}"
 printf '%s\n' "MANIFOLD_DATABASE_URL=${MANIFOLD_DATABASE_URL:-}" >> "${GO_STUB_LOG_PATH}"
+printf '%s\n' "MANIFOLD_INGEST_KEY=${MANIFOLD_INGEST_KEY:-}" >> "${GO_STUB_LOG_PATH}"
+printf '%s\n' 'stub manifold boot output'
 exit 0
 EOF
   chmod +x "${STUB_BIN}/go"
@@ -197,9 +200,22 @@ setup_fixture() {
   copy_script_to_fixture "06_run_security_checks.sh"
 }
 
+allocate_free_tcp_port() {
+  python3 - <<'PY'
+import socket
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PY
+}
+
 setup() {
   setup_shell_test
   setup_fixture
+  export DAST_ZAP_PROXY_PORT
+  DAST_ZAP_PROXY_PORT="$(allocate_free_tcp_port)"
 }
 
 teardown() {
@@ -390,13 +406,53 @@ EOF
   make_1psa_stub
   make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
-  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false ONEPSA_DATABASE_USERNAME_VALUE="from-user" ONEPSA_DATABASE_PW_VALUE="from-pw" ONEPSA_DATABASE_HOST_VALUE="db.example.internal" ONEPSA_DATABASE_PORT_VALUE="6543" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+  local dast_base_port
+  dast_base_port="$(allocate_free_tcp_port)"
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${dast_base_port}" ONEPSA_DATABASE_USERNAME_VALUE="from-user" ONEPSA_DATABASE_PW_VALUE="from-pw" ONEPSA_DATABASE_HOST_VALUE="db.example.internal" ONEPSA_DATABASE_PORT_VALUE="6543" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
   [ -f "${TEST_TMPDIR}/go-stub.log" ]
   [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"run ./cmd/manifold"* ]]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"MANIFOLD_ADDR=127.0.0.1:${dast_base_port}"* ]]
   [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"MANIFOLD_DATABASE_URL=postgres://"* ]]
+  [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" =~ MANIFOLD_INGEST_KEY=.+ ]]
   [[ "$(cat "${TEST_TMPDIR}/go-stub.log")" == *"@db.example.internal:6543/manifold?sslmode=disable"* ]]
+}
+
+@test "fails auto-boot when DAST bind address is already in use" {
+  make_go_stub
+  make_1psa_stub
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  local go_stub_log_path="${TEST_TMPDIR}/go-stub-port-conflict.log"
+  local busy_port=19080
+  python3 -m http.server "${busy_port}" --bind 127.0.0.1 >/dev/null 2>&1 &
+  local listener_pid=$!
+  sleep 1
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${busy_port}" GO_STUB_LOG_PATH="${go_stub_log_path}" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  kill "${listener_pid}" >/dev/null 2>&1 || true
+  wait "${listener_pid}" >/dev/null 2>&1 || true
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DAST auto-boot bind address is already in use"* ]]
+  [ ! -f "${go_stub_log_path}" ]
+}
+
+@test "prints auto-boot startup diagnostics when DAST health probe fails" {
+  #R030
+  make_go_stub
+  make_1psa_stub
+  make_curl_stub 1
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  local dast_base_port
+  dast_base_port="$(allocate_free_tcp_port)"
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${dast_base_port}" GO_STUB_LOG_PATH="${TEST_TMPDIR}/go-stub.log" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DAST health probe failed"* ]]
+  [[ "$output" == *"Auto-boot startup log:"* ]]
+  [[ "$output" == *"Last startup log lines:"* ]]
+  [[ "$output" == *"stub manifold boot output"* ]]
 }
 
 @test "runs Schemathesis and writes junit artifact" {
@@ -447,7 +503,7 @@ EOF
 @test "fails DAST gate when zap reports medium/high alerts" {
   #R040
   make_curl_stub 0
-  make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"00000","instances":[{"uri":"http://127.0.0.1:8080/risky"}]}]}]}' 1
+  make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"00000","instances":[{"uri":"http://127.0.0.1:18080/risky"}]}]}]}' 1
   run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
@@ -457,7 +513,7 @@ EOF
 @test "ignores configured DAST alert refs during gate evaluation" {
   #R040
   make_curl_stub 0
-  make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"10055-13","instances":[{"uri":"http://127.0.0.1:8080/known-noise"}]}]}]}' 1
+  make_zap_baseline_stub '{"site":[{"alerts":[{"riskcode":"2","alertRef":"10055-13","instances":[{"uri":"http://127.0.0.1:18080/known-noise"}]}]}]}' 1
   run env RUN_SAST=false RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
@@ -480,6 +536,17 @@ EOF
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Missing required command: zap-baseline.py or ZAP.sh"* ]]
+}
+
+@test "fails DAST lane when zap proxy port conflicts with target URL port" {
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  local conflict_port
+  conflict_port="$(allocate_free_tcp_port)"
+  run env RUN_SAST=false DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${conflict_port}" DAST_ZAP_TARGET_URL="http://127.0.0.1:${conflict_port}" DAST_ZAP_PROXY_PORT="${conflict_port}" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"conflicts with DAST_ZAP_TARGET_URL"* ]]
 }
 
 @test "runs DAST lane when ZAP.sh is discovered via ZAP_APP_PATH" {
@@ -516,6 +583,7 @@ EOF
   [[ "$output" == *"Attack complete"* ]]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap-report.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/dast-zap.log" ]
+  [[ "$(cat "${zap_cli_args_log}")" == *"-port ${DAST_ZAP_PROXY_PORT}"* ]]
   [[ "$(cat "${zap_cli_args_log}")" == *"-quickprogress"* ]]
   [[ "$(cat "${FIXTURE_ROOT}/.security-reports/dast-zap.log")" == *"Attack complete"* ]]
 }

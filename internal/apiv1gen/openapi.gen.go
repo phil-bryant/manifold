@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
@@ -21,6 +22,11 @@ const (
 	Error EventRecordLevel = "error"
 	Info  EventRecordLevel = "info"
 	Warn  EventRecordLevel = "warn"
+)
+
+// Defines values for EventRecordSchemaVersion.
+const (
+	N1 EventRecordSchemaVersion = 1
 )
 
 // APIResponse defines model for APIResponse.
@@ -39,23 +45,40 @@ type APIResponse struct {
 type BatchRequest struct {
 	BatchId string        `json:"batch_id"`
 	Events  []EventRecord `json:"events"`
-	SentAt  string        `json:"sent_at"`
+	SentAt  time.Time     `json:"sent_at"`
 }
 
 // EventRecord defines model for EventRecord.
 type EventRecord struct {
-	Component     string                 `json:"component"`
-	Event         string                 `json:"event"`
-	EventId       string                 `json:"event_id"`
-	Fields        map[string]interface{} `json:"fields"`
-	InstallId     string                 `json:"install_id"`
-	Level         EventRecordLevel       `json:"level"`
-	SchemaVersion int                    `json:"schema_version"`
-	Timestamp     string                 `json:"timestamp"`
+	Component     string                                              `json:"component"`
+	Event         string                                              `json:"event"`
+	EventId       string                                              `json:"event_id"`
+	Fields        map[string]*EventRecord_Fields_AdditionalProperties `json:"fields"`
+	InstallId     string                                              `json:"install_id"`
+	Level         EventRecordLevel                                    `json:"level"`
+	SchemaVersion EventRecordSchemaVersion                            `json:"schema_version"`
+	Timestamp     time.Time                                           `json:"timestamp"`
+}
+
+// EventRecordFields0 defines model for .
+type EventRecordFields0 = bool
+
+// EventRecordFields1 defines model for .
+type EventRecordFields1 = float32
+
+// EventRecordFields2 defines model for .
+type EventRecordFields2 = string
+
+// EventRecord_Fields_AdditionalProperties defines model for EventRecord.fields.AdditionalProperties.
+type EventRecord_Fields_AdditionalProperties struct {
+	union json.RawMessage
 }
 
 // EventRecordLevel defines model for EventRecord.Level.
 type EventRecordLevel string
+
+// EventRecordSchemaVersion defines model for EventRecord.SchemaVersion.
+type EventRecordSchemaVersion int32
 
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
@@ -82,6 +105,94 @@ type PostEventsBatchParams struct {
 
 // PostEventsBatchJSONRequestBody defines body for PostEventsBatch for application/json ContentType.
 type PostEventsBatchJSONRequestBody = BatchRequest
+
+// AsEventRecordFields0 returns the union data inside the EventRecord_Fields_AdditionalProperties as a EventRecordFields0
+func (t EventRecord_Fields_AdditionalProperties) AsEventRecordFields0() (EventRecordFields0, error) {
+	var body EventRecordFields0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventRecordFields0 overwrites any union data inside the EventRecord_Fields_AdditionalProperties as the provided EventRecordFields0
+func (t *EventRecord_Fields_AdditionalProperties) FromEventRecordFields0(v EventRecordFields0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEventRecordFields0 performs a merge with any union data inside the EventRecord_Fields_AdditionalProperties, using the provided EventRecordFields0
+func (t *EventRecord_Fields_AdditionalProperties) MergeEventRecordFields0(v EventRecordFields0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventRecordFields1 returns the union data inside the EventRecord_Fields_AdditionalProperties as a EventRecordFields1
+func (t EventRecord_Fields_AdditionalProperties) AsEventRecordFields1() (EventRecordFields1, error) {
+	var body EventRecordFields1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventRecordFields1 overwrites any union data inside the EventRecord_Fields_AdditionalProperties as the provided EventRecordFields1
+func (t *EventRecord_Fields_AdditionalProperties) FromEventRecordFields1(v EventRecordFields1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEventRecordFields1 performs a merge with any union data inside the EventRecord_Fields_AdditionalProperties, using the provided EventRecordFields1
+func (t *EventRecord_Fields_AdditionalProperties) MergeEventRecordFields1(v EventRecordFields1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventRecordFields2 returns the union data inside the EventRecord_Fields_AdditionalProperties as a EventRecordFields2
+func (t EventRecord_Fields_AdditionalProperties) AsEventRecordFields2() (EventRecordFields2, error) {
+	var body EventRecordFields2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventRecordFields2 overwrites any union data inside the EventRecord_Fields_AdditionalProperties as the provided EventRecordFields2
+func (t *EventRecord_Fields_AdditionalProperties) FromEventRecordFields2(v EventRecordFields2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEventRecordFields2 performs a merge with any union data inside the EventRecord_Fields_AdditionalProperties, using the provided EventRecordFields2
+func (t *EventRecord_Fields_AdditionalProperties) MergeEventRecordFields2(v EventRecordFields2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventRecord_Fields_AdditionalProperties) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventRecord_Fields_AdditionalProperties) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {

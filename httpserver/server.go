@@ -217,21 +217,43 @@ func mapBatchRequest(in apiv1gen.BatchRequest) ingest.BatchRequest {
 	events := make([]ingest.EventRecord, 0, len(in.Events))
 	for _, event := range in.Events {
 		events = append(events, ingest.EventRecord{
-			SchemaVersion: event.SchemaVersion,
+			SchemaVersion: int(event.SchemaVersion),
 			EventID:       event.EventId,
-			Timestamp:     event.Timestamp,
+			Timestamp:     event.Timestamp.Format(time.RFC3339Nano),
 			Level:         string(event.Level),
 			Event:         event.Event,
 			Component:     event.Component,
 			InstallID:     event.InstallId,
-			Fields:        event.Fields,
+			Fields:        mapEventFields(event.Fields),
 		})
 	}
 	return ingest.BatchRequest{
 		BatchID: in.BatchId,
-		SentAt:  in.SentAt,
+		SentAt:  in.SentAt.Format(time.RFC3339Nano),
 		Events:  events,
 	}
+}
+
+func mapEventFields(in map[string]*apiv1gen.EventRecord_Fields_AdditionalProperties) map[string]interface{} {
+	fields := make(map[string]interface{}, len(in))
+	for key, value := range in {
+		if value == nil {
+			fields[key] = nil
+			continue
+		}
+		raw, err := value.MarshalJSON()
+		if err != nil {
+			fields[key] = nil
+			continue
+		}
+		var decoded interface{}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			fields[key] = nil
+			continue
+		}
+		fields[key] = decoded
+	}
+	return fields
 }
 
 func mapPostEventsResponse(status int, in ingest.APIResponse) apiv1gen.PostEventsBatchResponseObject {

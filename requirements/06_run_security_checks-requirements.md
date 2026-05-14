@@ -34,17 +34,18 @@ Tests:
 - Verify findings under `.gomodcache` are excluded from detect-secrets gate totals while in-scope findings still fail the gate.
 
 R025  Statement: Enable DAST by default while allowing explicit opt-out and deterministic local target boot.
-Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa`, and construct runtime `MANIFOLD_DATABASE_URL` directly from `localhost_postgres_manifold` fields `username`, `password`, `host`, and `port` (plus default db name `manifold`).
+Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa`, construct runtime `MANIFOLD_DATABASE_URL` directly from `localhost_postgres_manifold` fields `username`, `password`, `host`, and `port` (plus default db name `manifold`), and inject `MANIFOLD_INGEST_KEY` from `DAST_AUTO_BOOT_INGEST_KEY` (defaulting to `${MANIFOLD_INGEST_KEY:-local-ingest-key}`).
 Tests:
 - Run without setting `RUN_DAST` and verify DAST executes.
 - Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
-- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` fields.
+- Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` fields and an ingest key environment value.
 
 R030  Statement: Probe service health before launching DAST scanning.
 Design: Require a successful `curl` probe to `${DAST_BASE_URL}/healthz`; when `DAST_AUTO_BOOT=true`, wait up to `DAST_AUTO_BOOT_TIMEOUT_SECONDS` for service readiness, write `dast-health.log`, and fail with explicit diagnostics when the probe fails.
 Tests:
 - Run DAST lane with failing `curl` stub and verify explicit non-zero failure output.
 - Run DAST lane with passing `curl` and verify `dast-health.log` is created.
+- Run DAST lane with auto-boot enabled and failing health probe and verify startup log diagnostics are printed.
 
 R035  Statement: Execute OWASP ZAP baseline scans with deterministic runner fallback.
 Design: Resolve host-native runner from PATH `zap-baseline.py` or ZAP CLI (`ZAP.sh`/`zap.sh`) under PATH/`ZAP_APP_PATH` (`/Applications/ZAP.app` by default), execute against `DAST_ZAP_TARGET_URL` (defaulting to `DAST_BASE_URL`) with bounded runtime via `DAST_ZAP_TIMEOUT_SECONDS`, and fail clearly when runner discovery, scanner execution, timeout, or report generation fails.
@@ -75,6 +76,7 @@ Tests:
 
 ## Changelog
 
+- 2026-05-13: Added DAST auto-boot ingest key injection requirement and failure-log diagnostics expectation for health probe failures.
 - 2026-05-10: Added default DAST suppression for ZAP daemon UI alert `10062` to avoid deterministic host-runner false positives.
 - 2026-05-10: Added live ZAP progress streaming and `dast-zap.log` artifact requirements for DAST observability.
 - 2026-05-10: Removed `MANIFOLD_DATABASE_URL_1PSA_REF` requirement for DAST auto-boot; DB URL is now composed directly from `localhost_postgres_manifold` fields.

@@ -148,12 +148,14 @@ DAST defaults to auto-booting the service (`DAST_AUTO_BOOT=true`) by running `go
 DAST auto-boot resolves database settings from `1psa`:
 
 - `localhost_postgres_manifold.username`, `.password`, `.host`, and `.port` are used to compose runtime `MANIFOLD_DATABASE_URL`
+- `MANIFOLD_INGEST_KEY` is injected from `DAST_AUTO_BOOT_INGEST_KEY` (default: `${MANIFOLD_INGEST_KEY:-local-ingest-key}`)
 
 Useful toggles:
 
 - `RUN_SAST=false` to skip SAST
 - `RUN_DAST=false` to skip DAST
 - `DAST_AUTO_BOOT=false` to target an already-running service
+- `DAST_AUTO_BOOT_INGEST_KEY=...` to override the auto-boot ingest key
 - `RUN_SCHEMATHESIS=false` to skip Schemathesis
 - ZAP scan output streams live to console and is also saved to `.security-reports/dast-zap.log`
 
