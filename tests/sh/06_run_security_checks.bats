@@ -105,6 +105,30 @@ EOF
   chmod +x "${STUB_BIN}/govulncheck"
 }
 
+make_go_vet_stub() {
+  local payload="${1:-{}}"
+  local exit_code="${2:-0}"
+  cat > "${STUB_BIN}/go" <<EOF
+#!/usr/bin/env bash
+if [ "\$#" -lt 1 ] || [ "\$1" != "vet" ]; then
+  echo "unexpected go invocation: \$*" >&2
+  exit 2
+fi
+if [ -n "\${GO_VET_EXPECT_ARGS_CONTAIN:-}" ]; then
+  case " \$* " in
+    *"\${GO_VET_EXPECT_ARGS_CONTAIN}"*) ;;
+    *)
+      echo "missing expected go vet arg: \${GO_VET_EXPECT_ARGS_CONTAIN}" >&2
+      exit 2
+      ;;
+  esac
+fi
+printf '%s\n' '${payload}'
+exit ${exit_code}
+EOF
+  chmod +x "${STUB_BIN}/go"
+}
+
 make_curl_stub() {
   local exit_code="${1:-0}"
   cat > "${STUB_BIN}/curl" <<EOF
@@ -230,6 +254,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   mkdir -p "${TEST_TMPDIR}/elsewhere"
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash -c "cd '${TEST_TMPDIR}/elsewhere' && bash '${FIXTURE_ROOT}/06_run_security_checks.sh'"
@@ -250,10 +275,26 @@ teardown() {
   #R005
   make_semgrep_stub
   make_detect_secrets_stub '{"results":{}}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Missing required command: shellcheck"* ]]
+  [[ "$output" == *"./01_install_prerequisites.sh"* ]]
+}
+
+@test "fails fast with installer guidance when go is missing for go vet" {
+  #R005
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Missing required command: go"* ]]
   [[ "$output" == *"./01_install_prerequisites.sh"* ]]
 }
 
@@ -265,6 +306,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" RUN_DAST=false \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
@@ -280,6 +322,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
@@ -289,6 +332,7 @@ teardown() {
   [ -f "${FIXTURE_ROOT}/.security-reports/detect-secrets.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/gosec.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/govulncheck.json" ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/govet.json" ]
   [ -f "${FIXTURE_ROOT}/.security-reports/sast-summary.json" ]
 }
 
@@ -300,6 +344,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
@@ -314,9 +359,25 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false GOSEC_EXPECT_ARGS_CONTAIN="-exclude-dir=.gomodcache" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
+}
+
+@test "invokes go vet with json output over all packages" {
+  #R015
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
+  run env RUN_DAST=false GO_VET_EXPECT_ARGS_CONTAIN="vet -json ./..." PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  [ -f "${FIXTURE_ROOT}/.security-reports/govet.json" ]
 }
 
 @test "invokes detect-secrets with gomodcache exclusion regex by default" {
@@ -327,6 +388,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false DETECT_SECRETS_EXPECT_ARGS_CONTAIN="--exclude-files (^|/)\\.gomodcache/" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
@@ -340,6 +402,7 @@ teardown() {
   make_detect_secrets_stub '{"results":{".gomodcache/cache/download/example":[{"type":"Hex High Entropy String","line_number":1}]}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]
@@ -371,6 +434,7 @@ EOF
   make_detect_secrets_stub '{"results":{"config/config.go":[{"type":"Secret Keyword","line_number":12}]}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false SECURITY_FAIL_ON_HIGH_CRITICAL=true PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 1 ]
@@ -381,6 +445,23 @@ EOF
   run python3 -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8"))["detect_secrets_findings"])' "${FIXTURE_ROOT}/.security-reports/sast-summary.json"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
+}
+
+@test "prints explicit SAST-to-DAST transition marker when DAST is enabled" {
+  #R055
+  make_semgrep_stub
+  make_shellcheck_stub '[]'
+  make_gitleaks_stub '[]'
+  make_detect_secrets_stub '{"results":{}}'
+  make_gosec_stub '{"Issues":[]}'
+  make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
+  make_curl_stub 0
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  run env RUN_SAST=true RUN_DAST=true DAST_AUTO_BOOT=false RUN_SCHEMATHESIS=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✅ Static Application Security Testing (SAST) checks completed."*"▶ Starting DAST lane next..."*"▶ Running DAST lane health probe against"* ]]
 }
 
 @test "runs DAST health probe and emits DAST artifacts by default" {
@@ -422,19 +503,86 @@ EOF
 @test "fails auto-boot when DAST bind address is already in use" {
   make_go_stub
   make_1psa_stub
-  make_curl_stub 0
   make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
   local go_stub_log_path="${TEST_TMPDIR}/go-stub-port-conflict.log"
-  local busy_port=19080
-  python3 -m http.server "${busy_port}" --bind 127.0.0.1 >/dev/null 2>&1 &
+  local busy_port
+  busy_port="$(allocate_free_tcp_port)"
+  python3 - "${busy_port}" >/dev/null 2>&1 <<'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+port = int(sys.argv[1])
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/healthz":
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"not-ready")
+            return
+        self.send_response(404)
+        self.end_headers()
+    def log_message(self, _format, *_args):
+        return
+
+server = HTTPServer(("127.0.0.1", port), Handler)
+server.serve_forever()
+PY
   local listener_pid=$!
   sleep 1
+  run /usr/bin/curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${busy_port}/healthz"
+  [ "$status" -eq 0 ]
+  [ "$output" = "503" ]
   run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${busy_port}" GO_STUB_LOG_PATH="${go_stub_log_path}" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   kill "${listener_pid}" >/dev/null 2>&1 || true
   wait "${listener_pid}" >/dev/null 2>&1 || true
   [ "$status" -eq 1 ]
   [[ "$output" == *"DAST auto-boot bind address is already in use"* ]]
+  [ ! -f "${go_stub_log_path}" ]
+}
+
+@test "reuses existing healthy service when auto-boot bind is in use" {
+  make_go_stub
+  make_1psa_stub
+  make_zap_baseline_stub '{"site":[{"alerts":[]}]}' 0
+  local go_stub_log_path="${TEST_TMPDIR}/go-stub-reuse.log"
+  local busy_port
+  busy_port="$(allocate_free_tcp_port)"
+  python3 - "${busy_port}" >/dev/null 2>&1 <<'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+port = int(sys.argv[1])
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/healthz":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
+        self.send_response(404)
+        self.end_headers()
+    def log_message(self, _format, *_args):
+        return
+
+server = HTTPServer(("127.0.0.1", port), Handler)
+server.serve_forever()
+PY
+  local listener_pid=$!
+  sleep 1
+  run /usr/bin/curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${busy_port}/healthz"
+  [ "$status" -eq 0 ]
+  [ "$output" = "200" ]
+  run env RUN_SAST=false DAST_AUTO_BOOT=true RUN_SCHEMATHESIS=false DAST_BASE_URL="http://127.0.0.1:${busy_port}" DAST_ZAP_TARGET_URL="http://127.0.0.1:${busy_port}" GO_STUB_LOG_PATH="${go_stub_log_path}" PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
+  kill "${listener_pid}" >/dev/null 2>&1 || true
+  wait "${listener_pid}" >/dev/null 2>&1 || true
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Attempting to reuse existing service"* ]]
   [ ! -f "${go_stub_log_path}" ]
 }
 
@@ -596,6 +744,7 @@ EOF
   make_detect_secrets_stub '{"results":{}}'
   make_gosec_stub '{"Issues":[]}'
   make_govulncheck_stub '{}'
+  make_go_vet_stub '{}'
   run env RUN_DAST=false PATH="${STUB_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
     bash "${FIXTURE_ROOT}/06_run_security_checks.sh"
   [ "$status" -eq 0 ]

@@ -47,8 +47,16 @@ ensure_brew_formula() {
 }
 
 ensure_go() {
-    #R010: Ensure Go toolchain is installed and available.
+    #R010: Ensure Go toolchain (including go vet) is installed and available.
     ensure_brew_formula "go" "go"
+    echo "[go vet] Checking..."
+    if go help vet >/dev/null 2>&1; then
+        echo "✅ [go vet] Available via Go toolchain"
+        return
+    fi
+    echo "❌ [go vet] Unavailable from installed Go toolchain."
+    echo "Reinstall/update Go and rerun: brew reinstall go"
+    exit 1
 }
 
 version_is_at_least() {

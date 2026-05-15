@@ -175,7 +175,7 @@ print(f"{host}\t{port}")
 PY
 }
 
-assert_bind_address_available() {
+get_bind_address_status() {
   local host="$1"
   local port="$2"
   set +e
@@ -215,6 +215,26 @@ raise SystemExit(5)
 PY
   local bind_check_exit=$?
   set -e
+  return "${bind_check_exit}"
+}
+
+is_loopback_host() {
+  local host="$1"
+  [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" || "${host}" == "::1" ]]
+}
+
+has_local_listener() {
+  local port="$1"
+  command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+assert_bind_address_available() {
+  local host="$1"
+  local port="$2"
+  local bind_check_exit=0
+  if ! get_bind_address_status "${host}" "${port}"; then
+    bind_check_exit=$?
+  fi
 
   if [[ "${bind_check_exit}" -eq 0 ]]; then
     return 0
@@ -339,6 +359,7 @@ run_sast_lane() {
   require_command detect-secrets
   require_command gosec
   require_command govulncheck
+  require_command go
   require_command python3
 
   echo "▶ Running SAST lane"
@@ -496,6 +517,21 @@ PY
   fi
 
   print_tool_header \
+    "go vet" \
+    "Go static analysis for suspicious constructs and likely code defects." \
+    "Runs compiler-backed vet checks across all packages in the module." \
+    "https://pkg.go.dev/cmd/vet"
+  echo "▶ Running go vet"
+  set +e
+  go vet -json ./... > "${REPORT_DIR}/govet.json" 2>&1
+  GOVET_EXIT=$?
+  set -e
+  if [[ "$GOVET_EXIT" -gt 1 ]] && [[ ! -s "${REPORT_DIR}/govet.json" ]]; then
+    echo "❌ go vet failed to execute."
+    exit 1
+  fi
+
+  print_tool_header \
     "govulncheck" \
     "Go vulnerability scanner mapped to known ecosystem advisories." \
     "Evaluates project modules and reachable vulnerable symbols." \
@@ -511,7 +547,7 @@ PY
   fi
 
   #R020: Aggregate SAST findings into a centralized gate summary.
-  python3 - <<'PY' "${REPORT_DIR}" "${FAIL_ON_HIGH_CRITICAL}" "${SHELLCHECK_EXIT}" "${GITLEAKS_EXIT}" "${GOSEC_EXIT}" "${GOVULNCHECK_EXIT}" "${DETECT_SECRETS_EXCLUDE_FILES_REGEX}"
+  python3 - <<'PY' "${REPORT_DIR}" "${FAIL_ON_HIGH_CRITICAL}" "${SHELLCHECK_EXIT}" "${GITLEAKS_EXIT}" "${GOSEC_EXIT}" "${GOVULNCHECK_EXIT}" "${GOVET_EXIT}" "${DETECT_SECRETS_EXCLUDE_FILES_REGEX}"
 import json
 import re
 import sys
@@ -524,16 +560,18 @@ shellcheck_exit = int(sys.argv[3])
 gitleaks_exit = int(sys.argv[4])
 gosec_exit = int(sys.argv[5])
 govulncheck_exit = int(sys.argv[6])
-detect_secrets_exclude_pattern = sys.argv[7]
+govet_exit = int(sys.argv[7])
+detect_secrets_exclude_pattern = sys.argv[8]
 
 semgrep_path = report_dir / "semgrep.json"
 shellcheck_path = report_dir / "shellcheck.json"
 gitleaks_path = report_dir / "gitleaks.json"
 gosec_path = report_dir / "gosec.json"
 govulncheck_path = report_dir / "govulncheck.json"
+govet_path = report_dir / "govet.json"
 detect_secrets_path = report_dir / "detect-secrets.json"
 
-for required in [semgrep_path, shellcheck_path, gitleaks_path, gosec_path, govulncheck_path, detect_secrets_path]:
+for required in [semgrep_path, shellcheck_path, gitleaks_path, gosec_path, govulncheck_path, govet_path, detect_secrets_path]:
     if not required.exists():
         print(f"Missing report file: {required}")
         sys.exit(1)
@@ -591,6 +629,11 @@ gosec_high = sum(1 for issue in issues if str(issue.get("severity", "")).upper()
 govulncheck_text = govulncheck_path.read_text(encoding="utf-8", errors="replace")
 govulncheck_findings = len(re.findall(r'"finding"\s*:', govulncheck_text))
 
+govet_text = govet_path.read_text(encoding="utf-8", errors="replace")
+govet_findings = len(re.findall(r'"(?:message|Message)"\s*:', govet_text))
+if govet_findings == 0 and govet_exit != 0:
+    govet_findings = 1
+
 detect_secrets = load_first_json(detect_secrets_path, {})
 detect_secrets_results = detect_secrets.get("results", {}) if isinstance(detect_secrets, dict) else {}
 detect_secrets_findings = 0
@@ -609,7 +652,7 @@ if isinstance(detect_secrets_results, dict):
             detect_secrets_findings += len(findings)
 
 high_critical_total = (
-    shellcheck_high + semgrep_high + gitleaks_findings + gosec_high + govulncheck_findings + detect_secrets_findings
+    shellcheck_high + semgrep_high + gitleaks_findings + gosec_high + govulncheck_findings + govet_findings + detect_secrets_findings
 )
 summary = {
     "shellcheck_high_critical": shellcheck_high,
@@ -618,10 +661,12 @@ summary = {
     "detect_secrets_findings": detect_secrets_findings,
     "gosec_high_critical": gosec_high,
     "govulncheck_findings": govulncheck_findings,
+    "govet_findings": govet_findings,
     "shellcheck_exit_code": shellcheck_exit,
     "gitleaks_exit_code": gitleaks_exit,
     "gosec_exit_code": gosec_exit,
     "govulncheck_exit_code": govulncheck_exit,
+    "govet_exit_code": govet_exit,
     "high_critical_total": high_critical_total,
     "gate_failed": fail_on_high and high_critical_total > 0,
 }
@@ -650,6 +695,7 @@ run_dast_lane() {
   require_command curl
   require_command python3
   local dast_app_log_path="${REPORT_DIR}/dast-app.log"
+  local using_existing_dast_service="false"
   if [[ "${RUN_SCHEMATHESIS}" == "true" ]]; then
     require_command schemathesis
   fi
@@ -667,22 +713,51 @@ run_dast_lane() {
       echo "❌ Unable to derive bind address from DAST_BASE_URL: ${DAST_BASE_URL}"
       exit 1
     fi
-    if ! assert_bind_address_available "${dast_bind_host}" "${dast_bind_port}"; then
+    local bind_check_exit=0
+    if is_loopback_host "${dast_bind_host}" && has_local_listener "${dast_bind_port}"; then
+      bind_check_exit=3
+    elif ! get_bind_address_status "${dast_bind_host}" "${dast_bind_port}"; then
+      bind_check_exit=$?
+    fi
+    if [[ "${bind_check_exit}" -eq 0 ]]; then
+      print_tool_header \
+        "go run ./cmd/manifold" \
+        "Auto-boots the local service so DAST has a deterministic target." \
+        "Uses MANIFOLD_ADDR from DAST_BASE_URL and DB URL/host/port from 1psa." \
+        "https://go.dev/"
+      echo "▶ Auto-booting manifold service for DAST at ${DAST_BASE_URL}"
+      if command -v setsid >/dev/null 2>&1; then
+        MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" setsid go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
+      else
+        MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
+      fi
+      DAST_APP_PID="$!"
+      DAST_APP_PGID="$(ps -o pgid= "${DAST_APP_PID}" | tr -d ' ')"
+    elif [[ "${bind_check_exit}" -eq 3 ]]; then
+      echo "ℹ️  DAST auto-boot bind address already in use: ${dast_bind_host}:${dast_bind_port}"
+      echo "ℹ️  Attempting to reuse existing service at ${DAST_BASE_URL}"
+      if ! wait_for_healthz "${DAST_BASE_URL}" "${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}"; then
+        echo "❌ DAST auto-boot bind address is already in use and existing service is not healthy: ${dast_bind_host}:${dast_bind_port}"
+        if command -v lsof >/dev/null 2>&1; then
+          echo "ℹ️  Existing listeners on TCP:${dast_bind_port}:"
+          lsof -nP -iTCP:"${dast_bind_port}" -sTCP:LISTEN || true
+        fi
+        echo "Set DAST_BASE_URL to an available host:port and rerun."
+        exit 1
+      fi
+      using_existing_dast_service="true"
+      if command -v lsof >/dev/null 2>&1; then
+        echo "ℹ️  Reusing listener(s) on TCP:${dast_bind_port}:"
+        lsof -nP -iTCP:"${dast_bind_port}" -sTCP:LISTEN || true
+      fi
+    elif [[ "${bind_check_exit}" -eq 4 ]]; then
+      echo "❌ DAST auto-boot bind address is not available on this machine: ${dast_bind_host}:${dast_bind_port}"
+      echo "Set DAST_BASE_URL to a local reachable host:port and rerun."
+      exit 1
+    else
+      echo "❌ Unable to validate DAST auto-boot bind address: ${dast_bind_host}:${dast_bind_port}"
       exit 1
     fi
-    print_tool_header \
-      "go run ./cmd/manifold" \
-      "Auto-boots the local service so DAST has a deterministic target." \
-      "Uses MANIFOLD_ADDR from DAST_BASE_URL and DB URL/host/port from 1psa." \
-      "https://go.dev/"
-    echo "▶ Auto-booting manifold service for DAST at ${DAST_BASE_URL}"
-    if command -v setsid >/dev/null 2>&1; then
-      MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" setsid go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
-    else
-      MANIFOLD_ADDR="${dast_bind_host}:${dast_bind_port}" MANIFOLD_DATABASE_URL="${database_url}" MANIFOLD_INGEST_KEY="${DAST_AUTO_BOOT_INGEST_KEY}" go run ./cmd/manifold > "${dast_app_log_path}" 2>&1 &
-    fi
-    DAST_APP_PID="$!"
-    DAST_APP_PGID="$(ps -o pgid= "${DAST_APP_PID}" | tr -d ' ')"
   fi
   local zap_runner_cmd=""
   local zap_runner_mode=""
@@ -705,7 +780,7 @@ run_dast_lane() {
     "https://curl.se/"
   echo "▶ Running DAST lane health probe against ${DAST_BASE_URL}"
   local health_timeout_seconds="${DAST_HEALTH_PROBE_TIMEOUT_SECONDS}"
-  if [[ "${DAST_AUTO_BOOT}" == "true" ]]; then
+  if [[ "${DAST_AUTO_BOOT}" == "true" ]] && [[ "${using_existing_dast_service}" != "true" ]]; then
     health_timeout_seconds="${DAST_AUTO_BOOT_TIMEOUT_SECONDS}"
   fi
   if ! wait_for_healthz "${DAST_BASE_URL}" "${health_timeout_seconds}"; then
@@ -950,6 +1025,10 @@ PY
 
 #R010: Keep security checks scoped to SAST/DAST so step-02 remains independent.
 run_sast_lane
+if [[ "${RUN_DAST}" == "true" ]]; then
+  #R055: Emit explicit SAST->DAST transition marker before DAST probing starts.
+  echo "▶ Starting DAST lane next..."
+fi
 run_dast_lane
 
 #R045: Emit explicit completion status and report location.

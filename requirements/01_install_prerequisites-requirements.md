@@ -14,11 +14,12 @@ Design: Check `brew` on `PATH`; print install guidance when missing.
 Tests:
 - Run with `brew` unavailable and verify clear failure guidance.
 
-R010  Statement: Ensure Go toolchain is available for Manifold development.
-Design: Require `go` on `PATH`; install Homebrew formula `go` when missing, then verify command resolution.
+R010  Statement: Ensure Go toolchain (including `go vet`) is available for Manifold development.
+Design: Require `go` on `PATH`; install Homebrew formula `go` when missing, then verify both `go` command resolution and bundled `go vet` availability via `go help vet`.
 Tests:
 - Run without `go` and verify installer attempts `brew install go`.
 - Rerun with `go` already installed and verify no reinstall.
+- Simulate a `go` binary without `go vet` support and verify installer fails with actionable guidance.
 
 R015  Statement: Enforce a minimum Go version required by this repository.
 Design: Parse `go version` output and fail with actionable guidance when the detected version is below configured minimum.
@@ -57,7 +58,7 @@ Tests:
 - Run installer with `zap-baseline.py` or `ZAP.sh` available and verify cask install is skipped.
 
 R035  Statement: Print explicit status for each prerequisite phase.
-Design: Emit clear checking/install/success/failure output for Homebrew, Go, Go version, Postgres CLI, lint toolchain, SAST/AV tools, DAST runtime tooling, and `1psa`.
+Design: Emit clear checking/install/success/failure output for Homebrew, Go, `go vet`, Go version, Postgres CLI, lint toolchain, SAST/AV tools, DAST runtime tooling, and `1psa`.
 Tests:
 - Run installer and verify phase status output appears for all major checks.
 
@@ -73,6 +74,7 @@ Tests:
 
 ## Changelog
 
+- 2026-05-14: Added explicit installer validation that `go vet` is available from the installed Go toolchain.
 - 2026-05-10: Added explicit `1psa` prerequisite required for secure DB secret resolution in step-06 auto-boot.
 - 2026-05-10: Added `detect-secrets` and `schemathesis` to prerequisite tooling coverage.
 - 2026-05-10: Added explicit DAST runtime prerequisite coverage (`zap-baseline.py`).

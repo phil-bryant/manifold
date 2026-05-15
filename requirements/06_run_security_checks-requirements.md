@@ -20,11 +20,12 @@ Tests:
 - Run step-06 when `02_run_dependency_freshness_checks.sh` is absent and verify SAST execution still succeeds.
 - Verify no dependency freshness artifacts are emitted by step-06.
 
-R015  Statement: Run SAST scanners (including shell script linting and credential-pattern scanners) and persist machine-readable artifacts.
-Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, and `govulncheck`; run `detect-secrets` with explicit file exclusion support (default excludes `.gomodcache` plus requirements markdown via `DETECT_SECRETS_EXCLUDE_FILES_REGEX` to prevent deterministic documentation-only false positives); write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, and `govulncheck.json` under the report directory.
+R015  Statement: Run SAST scanners (including shell script linting, Go static analyzers, and credential-pattern scanners) and persist machine-readable artifacts.
+Design: Require `semgrep`, `shellcheck`, `gitleaks`, `detect-secrets`, `gosec`, `govulncheck`, and `go` (for `go vet`); run `detect-secrets` with explicit file exclusion support (default excludes `.gomodcache` plus requirements markdown via `DETECT_SECRETS_EXCLUDE_FILES_REGEX` to prevent deterministic documentation-only false positives); run `go vet -json ./...`; write scanner outputs to `semgrep.json`, `shellcheck.json`, `gitleaks.json`, `detect-secrets.json`, `gosec.json`, `govulncheck.json`, and `govet.json` under the report directory.
 Tests:
 - Run SAST lane with stubs and verify each expected scanner artifact file is generated.
 - Verify `detect-secrets` invocation includes the default `.gomodcache` and requirements-doc exclusion regex.
+- Verify `go vet` invocation uses JSON output against `./...`.
 
 R020  Statement: Aggregate SAST findings into a centralized gating summary.
 Design: Build `sast-summary.json` from scanner outputs, include high/critical totals, count `detect-secrets` findings after applying the same exclusion regex policy used during scan invocation, and fail when `SECURITY_FAIL_ON_HIGH_CRITICAL=true` and findings are non-zero.
@@ -34,11 +35,13 @@ Tests:
 - Verify findings under `.gomodcache` are excluded from detect-secrets gate totals while in-scope findings still fail the gate.
 
 R025  Statement: Enable DAST by default while allowing explicit opt-out and deterministic local target boot.
-Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa`, construct runtime `MANIFOLD_DATABASE_URL` directly from `localhost_postgres_manifold` fields `username`, `password`, `host`, and `port` (plus default db name `manifold`), and inject `MANIFOLD_INGEST_KEY` from `DAST_AUTO_BOOT_INGEST_KEY` (defaulting to `${MANIFOLD_INGEST_KEY:-local-ingest-key}`).
+Design: Default `RUN_DAST` to `true` and execute the DAST lane unless `RUN_DAST=false`; default `DAST_AUTO_BOOT=true` to launch `go run ./cmd/manifold` with `MANIFOLD_ADDR` derived from `DAST_BASE_URL`, require `1psa`, construct runtime `MANIFOLD_DATABASE_URL` directly from `localhost_postgres_manifold` fields `username`, `password`, `host`, and `port` (plus default db name `manifold`), and inject `MANIFOLD_INGEST_KEY` from `DAST_AUTO_BOOT_INGEST_KEY` (defaulting to `${MANIFOLD_INGEST_KEY:-local-ingest-key}`). When the auto-boot bind address is already in use, attempt to reuse the existing service if `${DAST_BASE_URL}/healthz` is healthy; otherwise fail with occupied-port diagnostics.
 Tests:
 - Run without setting `RUN_DAST` and verify DAST executes.
 - Run with `RUN_DAST=false` and verify the lane is skipped with explicit skip output.
 - Run with auto-boot enabled and verify `go run ./cmd/manifold` is invoked with DB URL injected from `1psa` fields and an ingest key environment value.
+- Run with auto-boot enabled and an occupied but unhealthy bind address and verify deterministic failure diagnostics.
+- Run with auto-boot enabled and an occupied healthy bind address and verify existing-service reuse without launching a new `go run`.
 
 R030  Statement: Probe service health before launching DAST scanning.
 Design: Require a successful `curl` probe to `${DAST_BASE_URL}/healthz`; when `DAST_AUTO_BOOT=true`, wait up to `DAST_AUTO_BOOT_TIMEOUT_SECONDS` for service readiness, write `dast-health.log`, and fail with explicit diagnostics when the probe fails.
@@ -74,8 +77,15 @@ Tests:
 - Run DAST lane with stubs and verify console output includes runner resolution, timeout, report artifact, and live log artifact lines.
 - Run DAST lane with ZAP CLI fallback and verify invocation includes `-quickprogress` and streamed output is captured in `dast-zap.log`.
 
+R055  Statement: Emit an explicit lane transition marker after SAST completion when DAST is enabled.
+Design: Immediately after printing `✅ Static Application Security Testing (SAST) checks completed.`, print `▶ Starting DAST lane next...` before DAST health probing begins so operators can distinguish normal transition from hangs.
+Tests:
+- Run with both SAST and DAST enabled and verify output contains the SAST completion line followed by the DAST-start marker in order.
+
 ## Changelog
 
+- 2026-05-14: Added `go vet` to step-06 SAST tooling, artifacts, and invocation coverage requirements.
+- 2026-05-14: Added auto-boot occupied-port reuse requirement and an explicit SAST->DAST transition marker requirement.
 - 2026-05-13: Added DAST auto-boot ingest key injection requirement and failure-log diagnostics expectation for health probe failures.
 - 2026-05-10: Added default DAST suppression for ZAP daemon UI alert `10062` to avoid deterministic host-runner false positives.
 - 2026-05-10: Added live ZAP progress streaming and `dast-zap.log` artifact requirements for DAST observability.

@@ -136,6 +136,26 @@ EOF
   [[ "${output}" == *"below required"* ]]
 }
 
+@test "R010: fails when go vet is unavailable from go toolchain" {
+  #R010
+  create_brew_stub
+  cat > "${STUB_BIN}/go" <<'EOF'
+#!/bin/bash
+if [ "$1" = "help" ] && [ "$2" = "vet" ]; then
+  exit 2
+fi
+if [ "$1" = "version" ]; then
+  echo "go version go1.22.9 darwin/arm64"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/go"
+  run env PATH="${STUB_BIN}:/usr/bin:/bin" BREW_LOG="${TMP_ROOT}/brew.log" STUB_BIN="${STUB_BIN}" ZAP_APP_PATH="${ZAP_APP_PATH}" /bin/bash "${SCRIPT_PATH}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"[go vet] Unavailable from installed Go toolchain."* ]]
+}
+
 @test "R020,R035,R045: accepts libpq prefix fallback and prints Go guidance" {
   #R020 #R035 #R045
   create_brew_stub
